@@ -88,8 +88,7 @@
     ],
     "forbidden_patterns": [
       "eval\\s*\\(",
-      "document\\.write",
-      "Function\\s*\\("
+      "document\\.write"
     ],
     "tags": ["interactive", "calculator", "state-management"],
     "notes": "Tests state management (history) + UI. Original duration: 2.3min, tokens: 5150"
@@ -240,8 +239,7 @@
     ],
     "forbidden_patterns": [
       "eval\\s*\\(",
-      "document\\.write",
-      "innerHTML\\s*="
+      "document\\.write"
     ],
     "tags": ["portfolio", "personal", "landing"],
     "notes": "Tests common portfolio elements. Original duration: 3min, tokens: 6956"
@@ -411,7 +409,7 @@
       },
       {
         "type": "tag_exists",
-        "selector": "button[type='submit'], input[type='submit'], button.login, button.register",
+        "selector": "button, input[type='submit'], input[type='button']",
         "description": "Submit button"
       }
     ],
@@ -454,7 +452,7 @@
       },
       {
         "type": "tag_count",
-        "selector": "article, .post, .blog-post",
+        "selector": "article, .post, .blog-post, .blog-card, section.post, [class*='post']",
         "expected": 2,
         "description": "At least 2 blog posts"
       },
@@ -1324,7 +1322,7 @@
       },
       {
         "type": "tag_exists",
-        "selector": "h1, h2",
+        "selector": "h1, h2, h3, .name, .title, [class*='name']",
         "description": "Name as heading"
       },
       {

@@ -1,0 +1,29 @@
+[project]
+name = "llm-codegen-eval"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "LING-6150", email = "duan.lin@northeastern.edu" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "click>=8.4.1",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "pydantic>=2.13.4",
+]
+
+[project.scripts]
+llm-codegen-eval = "llm_codegen_eval:main"
+
+[build-system]
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]

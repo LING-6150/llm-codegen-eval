@@ -8,6 +8,8 @@ from ..evaluators.base import BaseEvaluator
 
 _EVALUATORS: dict[CodeType, type[BaseEvaluator]] = {
     CodeType.HTML: HtmlEvaluator,
+    CodeType.MULTI_FILE: HtmlEvaluator,  # TODO: dedicated MultiFileEvaluator (Day 4)
+    CodeType.VUE_PROJECT: HtmlEvaluator,  # TODO: dedicated VueEvaluator (Day 4)
 }
 
 async def run_case(case: EvalCase, client: JavaServiceClient) -> EvalResult:

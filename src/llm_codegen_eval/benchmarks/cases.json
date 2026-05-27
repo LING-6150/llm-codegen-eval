@@ -21,9 +21,9 @@
         "description": "Uses JS timer to update countdown"
       },
       {
-        "type": "tag_exists",
-        "selector": "#countdown, .countdown, .timer, .display, [id*='time']",
-        "description": "Display element for countdown"
+        "type": "regex_match",
+        "pattern": "<(span|div|h[1-6])[^>]*>[^<]*\\d+[:：]\\d+",
+        "description": "Display element with time format (00:00)"
       }
     ],
     "optional_checks": [

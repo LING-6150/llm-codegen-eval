@@ -18,7 +18,16 @@ from llm_codegen_eval.core.reporter import generate_ab_report, save_report
 CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
 
 
-def progress_callback(idx, total, case_id, phase, result=None, run_idx: int = 1):
+def progress_callback(
+    idx,
+    total,
+    case_id,
+    phase,
+    result=None,
+    run_idx: int = 1,
+    attempt_idx: int | None = None,
+    max_attempts: int | None = None,
+):
     run_label = f" run {run_idx}" if run_idx > 1 else ""
     if phase == "start":
         print(f"[{idx+1}/{total}] {case_id}{run_label}: running...", flush=True)
@@ -28,6 +37,12 @@ def progress_callback(idx, total, case_id, phase, result=None, run_idx: int = 1)
             f"[{idx+1}/{total}] {case_id}{run_label}: {status} "
             f"score={result.score}/100 "
             f"duration={result.generation_duration_ms/1000:.1f}s",
+            flush=True,
+        )
+    elif phase == "retry":
+        print(
+            f"[{idx+1}/{total}] {case_id}{run_label}: infra error, "
+            f"retrying ({attempt_idx}/{max_attempts - 1})...",
             flush=True,
         )
 
@@ -43,6 +58,7 @@ async def run_config(
     mysql_password: str | None,
     mysql_host: str,
     mysql_port: int,
+    infra_retries: int,
 ):
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
     java_params = java_request_params(config)
@@ -80,6 +96,7 @@ async def run_config(
         before_run=before_case_run,
         agent=config.generation.agent,
         java_params=java_params,
+        infra_retries=infra_retries,
     )
 
 
@@ -96,9 +113,12 @@ async def main(
     mysql_password: str | None = None,
     mysql_host: str = "localhost",
     mysql_port: int = 3306,
+    infra_retries: int = 1,
 ):
     if runs_per_case < 1:
         raise ValueError("--runs-per-case must be >= 1")
+    if infra_retries < 0:
+        raise ValueError("--infra-retries must be >= 0")
 
     config_a = load_run_config(config_a_path)
     config_b = load_run_config(config_b_path)
@@ -132,6 +152,7 @@ async def main(
             mysql_password,
             mysql_host,
             mysql_port,
+            infra_retries,
         )
         results_b = await run_config(
             config_b,
@@ -144,6 +165,7 @@ async def main(
             mysql_password,
             mysql_host,
             mysql_port,
+            infra_retries,
         )
     except PreflightError as e:
         print(f"❌ Pre-flight failed: {e}")
@@ -166,6 +188,7 @@ async def main(
             "Duration": f"{duration:.1f}s",
             "Runs per case": str(runs_per_case),
             "Chat history cleared": str(clear_history),
+            "Infra retries": str(infra_retries),
             "Config A java_service": config_a.java_service or "-",
             "Config B java_service": config_b.java_service or "-",
             "Raw A": str(raw_a_path),
@@ -187,6 +210,8 @@ if __name__ == "__main__":
     parser.add_argument("--type", choices=["html", "multi_file", "vue_project"], help="Filter by code type")
     parser.add_argument("--limit", type=int, help="Limit number of cases")
     parser.add_argument("--runs-per-case", type=int, default=3, help="Independent generations per case")
+    parser.add_argument("--infra-retries", type=int, default=1,
+                        help="Retries for transient provider/network errors per case run")
     parser.add_argument("--app-id", help="Java service appId to use")
     parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
                         default=True, help="Clear chat_history before each case run (default)")
@@ -212,4 +237,5 @@ if __name__ == "__main__":
         mysql_password=args.mysql_password,
         mysql_host=args.mysql_host,
         mysql_port=args.mysql_port,
+        infra_retries=args.infra_retries,
     ))

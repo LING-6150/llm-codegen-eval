@@ -18,6 +18,7 @@ async def run_batch(
     before_run=None,
     agent: bool = True,
     java_params: dict | None = None,
+    infra_retries: int = 0,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -30,6 +31,8 @@ async def run_batch(
 
     if runs_per_case < 1:
         raise ValueError("runs_per_case must be >= 1")
+    if infra_retries < 0:
+        raise ValueError("infra_retries must be >= 0")
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -49,17 +52,36 @@ async def run_batch(
             if on_progress:
                 on_progress(job_idx, len(jobs), case.case_id, "start", run_idx=run_idx + 1)
 
-            if before_run:
-                maybe_awaitable = before_run(case, run_idx + 1, runs_per_case)
-                if asyncio.iscoroutine(maybe_awaitable):
-                    await maybe_awaitable
+            result = None
+            for attempt_idx in range(infra_retries + 1):
+                if before_run:
+                    maybe_awaitable = before_run(case, run_idx + 1, runs_per_case)
+                    if asyncio.iscoroutine(maybe_awaitable):
+                        await maybe_awaitable
 
-            result = await run_case(case, client, agent=agent, java_params=java_params)
+                result = await run_case(case, client, agent=agent, java_params=java_params)
+                if not is_infra_error(result) or attempt_idx >= infra_retries:
+                    break
+
+                if on_progress:
+                    on_progress(
+                        job_idx,
+                        len(jobs),
+                        case.case_id,
+                        "retry",
+                        result,
+                        run_idx=run_idx + 1,
+                        attempt_idx=attempt_idx + 1,
+                        max_attempts=infra_retries + 1,
+                    )
+
+            assert result is not None
             result.run_config.update({
                 "run_index": run_idx + 1,
                 "runs_per_case": runs_per_case,
                 "agent": agent,
                 "java_params": java_params or {},
+                "infra_retries": infra_retries,
             })
 
             if on_progress:
@@ -106,3 +128,25 @@ def load_results(results_path: Path) -> list[EvalResult]:
     with open(results_path, encoding="utf-8") as f:
         data = json.load(f)
     return [EvalResult(**r) for r in data]
+
+def is_infra_error(result: EvalResult) -> bool:
+    """Return true for transient provider/network errors worth rerunning."""
+    if not result.error:
+        return False
+
+    error = result.error.lower()
+    transient_markers = [
+        "remote host terminated",
+        "handshake",
+        "tls",
+        "i/o error",
+        "timeout",
+        "timed out",
+        "429",
+        "too many requests",
+        "connection reset",
+        "connection refused",
+        "connection aborted",
+        "temporarily unavailable",
+    ]
+    return any(marker in error for marker in transient_markers)

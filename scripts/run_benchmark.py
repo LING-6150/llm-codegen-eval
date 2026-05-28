@@ -22,7 +22,16 @@ from llm_codegen_eval.clients.java_client import JavaServiceClient
 
 CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
 
-def progress_callback(idx, total, case_id, phase, result=None, run_idx: int = 1):
+def progress_callback(
+    idx,
+    total,
+    case_id,
+    phase,
+    result=None,
+    run_idx: int = 1,
+    attempt_idx: int | None = None,
+    max_attempts: int | None = None,
+):
     """Print progress to stdout."""
     run_label = f" run {run_idx}" if run_idx > 1 else ""
     if phase == "start":
@@ -33,6 +42,12 @@ def progress_callback(idx, total, case_id, phase, result=None, run_idx: int = 1)
             f"[{idx+1}/{total}] {case_id}{run_label}: {status} "
             f"score={result.score}/100 "
             f"duration={result.generation_duration_ms/1000:.1f}s",
+            flush=True
+        )
+    elif phase == "retry":
+        print(
+            f"[{idx+1}/{total}] {case_id}{run_label}: infra error, "
+            f"retrying ({attempt_idx}/{max_attempts - 1})...",
             flush=True
         )
 
@@ -50,6 +65,7 @@ async def main(
     runs_per_case: int = 3,
     agent: bool = True,
     config_path: Path | None = None,
+    infra_retries: int = 1,
 ):
     config_metadata = {}
     java_params = {}
@@ -69,6 +85,8 @@ async def main(
 
     if runs_per_case < 1:
         raise ValueError("--runs-per-case must be >= 1")
+    if infra_retries < 0:
+        raise ValueError("--infra-retries must be >= 0")
 
     # Load cases
     cases = load_cases(CASES_PATH)
@@ -134,6 +152,7 @@ async def main(
             before_run=before_case_run,
             agent=agent,
             java_params=java_params,
+            infra_retries=infra_retries,
         )
     except Exception as e:
         print(f"\n❌ Batch run failed: {e}")
@@ -163,6 +182,7 @@ async def main(
             "Chat history cleared": str(clear_history),
             "Agent workflow": str(agent),
             "Java params": java_params or "-",
+            "Infra retries": str(infra_retries),
             **{f"Metadata: {k}": v for k, v in config_metadata.items()},
         }
     )
@@ -203,6 +223,8 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, help="Limit number of cases (for testing)")
     parser.add_argument("--runs-per-case", type=int, default=3,
                        help="Number of independent generations per case for pass@k")
+    parser.add_argument("--infra-retries", type=int, default=1,
+                       help="Retries for transient provider/network errors per case run")
     parser.add_argument("--agent", dest="agent", action="store_true",
                        default=True, help="Use Java Multi-Agent workflow (default)")
     parser.add_argument("--no-agent", dest="agent", action="store_false",
@@ -235,4 +257,5 @@ if __name__ == "__main__":
         runs_per_case=args.runs_per_case,
         agent=args.agent,
         config_path=args.config,
+        infra_retries=args.infra_retries,
     ))

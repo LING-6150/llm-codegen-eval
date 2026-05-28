@@ -31,6 +31,7 @@ def test_clear_chat_history_builds_mysql_command():
     cmd = args[0]
     assert cmd == [
         "mysql",
+        "--password=secret",
         "-h",
         "localhost",
         "-P",
@@ -42,7 +43,6 @@ def test_clear_chat_history_builds_mysql_command():
         "-e",
         "DELETE FROM chat_history WHERE appId = 415591816310689792;",
     ]
-    assert kwargs["env"]["MYSQL_PWD"] == "secret"
     assert kwargs["capture_output"] is True
     assert kwargs["check"] is False
 

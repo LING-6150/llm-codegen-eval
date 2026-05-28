@@ -55,15 +55,13 @@ def clear_chat_history(
         sql,
     ]
 
-    env = os.environ.copy()
     password = config.password if config.password is not None else os.environ.get("EVAL_MYSQL_PASSWORD")
     if password:
-        env["MYSQL_PWD"] = password
+        cmd.insert(1, f"--password={password}")
 
     try:
         completed = runner(
             cmd,
-            env=env,
             capture_output=True,
             text=True,
             timeout=config.timeout_seconds,

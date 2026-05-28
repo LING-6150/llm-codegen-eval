@@ -220,10 +220,11 @@ def generate_ab_report(
         f"| pass@{k} | {pass_a['pass_rate']:.1%} | {pass_b['pass_rate']:.1%} | "
         f"{_format_percent_delta(pass_b['pass_rate'] - pass_a['pass_rate'])} |"
     )
-    lines.append(
-        f"| pass@1 | {pass1_a['pass_rate']:.1%} | {pass1_b['pass_rate']:.1%} | "
-        f"{_format_percent_delta(pass1_b['pass_rate'] - pass1_a['pass_rate'])} |"
-    )
+    if k != 1:
+        lines.append(
+            f"| pass@1 | {pass1_a['pass_rate']:.1%} | {pass1_b['pass_rate']:.1%} | "
+            f"{_format_percent_delta(pass1_b['pass_rate'] - pass1_a['pass_rate'])} |"
+        )
     lines.append(
         f"| Run-level pass rate | {summary_a.get('pass_rate', 0):.1%} | "
         f"{summary_b.get('pass_rate', 0):.1%} | "

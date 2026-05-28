@@ -26,9 +26,11 @@ def main(
 
     results_a = load_results(raw_a)
     results_b = load_results(raw_b)
-    case_ids = {c.case_id for c in cases}
-    results_a = [r for r in results_a if r.case_id in case_ids]
-    results_b = [r for r in results_b if r.case_id in case_ids]
+    selected_case_ids = {c.case_id for c in cases}
+    results_a = [r for r in results_a if r.case_id in selected_case_ids]
+    results_b = [r for r in results_b if r.case_id in selected_case_ids]
+    result_case_ids = {r.case_id for r in results_a} | {r.case_id for r in results_b}
+    cases = [c for c in cases if c.case_id in result_case_ids]
 
     report = generate_ab_report(
         results_a,

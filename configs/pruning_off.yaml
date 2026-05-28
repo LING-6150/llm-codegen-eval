@@ -1,0 +1,9 @@
+name: pruning_off
+generation:
+  agent: true
+java_service:
+  params:
+    agent.orchestrator.enabled: true
+    context.pruning.enabled: false
+metadata:
+  hypothesis: Multi-Agent baseline without context pruning

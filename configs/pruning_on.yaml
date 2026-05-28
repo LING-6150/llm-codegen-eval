@@ -1,0 +1,9 @@
+name: pruning_on
+generation:
+  agent: true
+java_service:
+  params:
+    agent.orchestrator.enabled: true
+    context.pruning.enabled: true
+metadata:
+  hypothesis: AgentPrune-inspired field-level context pruning enabled

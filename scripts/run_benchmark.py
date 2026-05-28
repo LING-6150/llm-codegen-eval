@@ -12,7 +12,7 @@ from llm_codegen_eval.core.batch_runner import (
 )
 from llm_codegen_eval.core.reporter import generate_markdown, save_report
 from llm_codegen_eval.core.case import CodeType
-from llm_codegen_eval.core.config import load_run_config
+from llm_codegen_eval.core.config import java_request_params, load_run_config
 from llm_codegen_eval.core.preflight import (
     ChatHistoryCleanupConfig,
     PreflightError,
@@ -52,16 +52,19 @@ async def main(
     config_path: Path | None = None,
 ):
     config_metadata = {}
+    java_params = {}
     if config_path:
         run_config = load_run_config(config_path)
         config_name = run_config.name
         agent = run_config.generation.agent
+        java_params = java_request_params(run_config)
         config_metadata = run_config.metadata
 
     print("=" * 70)
     print(f"LLM Codegen Eval — Batch Run")
     print(f"Config: {config_name}")
     print(f"Agent workflow: {agent}")
+    print(f"Java params: {java_params or '-'}")
     print("=" * 70)
 
     if runs_per_case < 1:
@@ -76,7 +79,7 @@ async def main(
         cases = [c for c in cases if c.code_type.value == filter_type]
         print(f"Filtered to {len(cases)} {filter_type} cases")
 
-    if limit:
+    if limit is not None:
         cases = cases[:limit]
         print(f"Limited to first {len(cases)} cases")
 
@@ -130,6 +133,7 @@ async def main(
             runs_per_case=runs_per_case,
             before_run=before_case_run,
             agent=agent,
+            java_params=java_params,
         )
     except Exception as e:
         print(f"\n❌ Batch run failed: {e}")
@@ -158,6 +162,7 @@ async def main(
             "App ID": client.app_id,
             "Chat history cleared": str(clear_history),
             "Agent workflow": str(agent),
+            "Java params": java_params or "-",
             **{f"Metadata: {k}": v for k, v in config_metadata.items()},
         }
     )

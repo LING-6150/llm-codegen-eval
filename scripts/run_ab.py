@@ -7,7 +7,7 @@ from pathlib import Path
 
 from llm_codegen_eval.clients.java_client import JavaServiceClient
 from llm_codegen_eval.core.batch_runner import load_cases, run_batch, save_results
-from llm_codegen_eval.core.config import EvalRunConfig, load_run_config
+from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config
 from llm_codegen_eval.core.preflight import (
     ChatHistoryCleanupConfig,
     PreflightError,
@@ -45,6 +45,7 @@ async def run_config(
     mysql_port: int,
 ):
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
+    java_params = java_request_params(config)
 
     def cleanup_chat_history():
         clear_chat_history(
@@ -67,7 +68,7 @@ async def run_config(
         cleanup_chat_history()
         print(f"Pre-flight ({config.name}): mysql cleanup check passed.")
 
-    print(f"\nRunning config {config.name} (agent={config.generation.agent})")
+    print(f"\nRunning config {config.name} (agent={config.generation.agent}, java_params={java_params or '-'})")
     print("-" * 70)
 
     return await run_batch(
@@ -78,6 +79,7 @@ async def run_config(
         runs_per_case=runs_per_case,
         before_run=before_case_run,
         agent=config.generation.agent,
+        java_params=java_params,
     )
 
 
@@ -104,7 +106,7 @@ async def main(
     cases = load_cases(CASES_PATH)
     if filter_type:
         cases = [c for c in cases if c.code_type.value == filter_type]
-    if limit:
+    if limit is not None:
         cases = cases[:limit]
     if not cases:
         print("No cases to run.")
@@ -164,6 +166,8 @@ async def main(
             "Duration": f"{duration:.1f}s",
             "Runs per case": str(runs_per_case),
             "Chat history cleared": str(clear_history),
+            "Config A java_service": config_a.java_service or "-",
+            "Config B java_service": config_b.java_service or "-",
             "Raw A": str(raw_a_path),
             "Raw B": str(raw_b_path),
         },

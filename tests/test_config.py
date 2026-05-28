@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from llm_codegen_eval.core.config import ConfigError, load_run_config
+from llm_codegen_eval.core.config import ConfigError, java_request_params, load_run_config
 
 
 def test_load_run_config_reads_generation_agent(tmp_path: Path):
@@ -27,6 +27,7 @@ def test_load_run_config_reads_generation_agent(tmp_path: Path):
     assert config.generation.agent is False
     assert config.java_service["params"]["context.pruning.enabled"] is True
     assert config.metadata["hypothesis"] == "Single-agent baseline"
+    assert java_request_params(config) == {"contextPruning": True}
 
 
 def test_load_run_config_rejects_non_boolean_agent(tmp_path: Path):

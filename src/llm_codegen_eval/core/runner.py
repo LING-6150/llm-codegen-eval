@@ -16,9 +16,10 @@ async def run_case(
     case: EvalCase,
     client: JavaServiceClient,
     agent: bool = True,
+    java_params: dict | None = None,
 ) -> EvalResult:
     try:
-        gen_result = await client.generate(case.prompt, agent=agent)
+        gen_result = await client.generate(case.prompt, agent=agent, extra_params=java_params)
     except Exception as e:
         return EvalResult(
             case_id=case.case_id,
@@ -29,7 +30,7 @@ async def run_case(
             optional_passed=0,
             optional_total=len(case.optional_checks),
             error=f"Generation failed: {e}",
-            run_config={"agent": agent},
+            run_config={"agent": agent, "java_params": java_params or {}},
         )
 
     if gen_result.get("error"):
@@ -43,7 +44,7 @@ async def run_case(
             optional_total=len(case.optional_checks),
             generation_duration_ms=gen_result["duration_ms"],
             error=f"Workflow error: {gen_result['error']}",
-            run_config={"agent": agent},
+            run_config={"agent": agent, "java_params": java_params or {}},
         )
 
     evaluator_cls = _EVALUATORS.get(case.code_type)
@@ -56,6 +57,6 @@ async def run_case(
     result.generation_duration_ms = gen_result["duration_ms"]
     result.review_score = gen_result.get("review_score")
     result.review_passed = gen_result.get("review_passed")
-    result.run_config.update({"agent": agent})
+    result.run_config.update({"agent": agent, "java_params": java_params or {}})
 
     return result

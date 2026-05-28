@@ -24,6 +24,23 @@ class ConfigError(ValueError):
     """Raised when an eval run config cannot be loaded."""
 
 
+def java_request_params(config: EvalRunConfig) -> dict[str, Any]:
+    """Convert java_service.params config keys to Java HTTP request params."""
+    params = config.java_service.get("params", {})
+    if not isinstance(params, dict):
+        raise ConfigError("java_service.params must be a mapping")
+
+    request_params: dict[str, Any] = {}
+    for key, value in params.items():
+        if key == "context.pruning.enabled":
+            request_params["contextPruning"] = value
+        elif key == "agent.orchestrator.enabled":
+            continue
+        else:
+            request_params[key] = value
+    return request_params
+
+
 def load_run_config(path: Path) -> EvalRunConfig:
     data = _parse_simple_yaml(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):

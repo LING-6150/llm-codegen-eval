@@ -33,7 +33,12 @@ class JavaServiceClient:
             resp.raise_for_status()
             self.cookies = dict(resp.cookies)
 
-    async def generate(self, prompt: str, agent: bool = True) -> dict:
+    async def generate(
+        self,
+        prompt: str,
+        agent: bool = True,
+        extra_params: dict | None = None,
+    ) -> dict:
         if not self.cookies:
             await self.login()
 
@@ -43,15 +48,22 @@ class JavaServiceClient:
         workflow_error = None
         start_time = time.time()
 
+        params = {
+            "appId": self.app_id,
+            "message": prompt,
+            "agent": str(agent).lower()
+        }
+        if extra_params:
+            params.update({
+                key: str(value).lower() if isinstance(value, bool) else value
+                for key, value in extra_params.items()
+            })
+
         async with httpx.AsyncClient(cookies=self.cookies, timeout=300) as client:
             async with client.stream(
                 "GET",
                 f"{self.base_url}/api/app/chat/gen/code",
-                params={
-                    "appId": self.app_id,
-                    "message": prompt,
-                    "agent": str(agent).lower()
-                }
+                params=params
             ) as response:
                 response.raise_for_status()
 

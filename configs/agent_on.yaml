@@ -1,5 +1,8 @@
 name: agent_on
 generation:
   agent: true
+java_service:
+  params:
+    agent.orchestrator.enabled: true
 metadata:
   hypothesis: Multi-Agent workflow enabled

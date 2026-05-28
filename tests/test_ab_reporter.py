@@ -45,7 +45,12 @@ def test_generate_ab_report_includes_summary_and_per_case_diff():
     report = generate_ab_report(results_a, results_b, cases, "agent_on", "agent_off")
 
     assert "# A/B Eval Report" in report
+    assert "## Winner Summary" in report
+    assert "## Improvements" in report
+    assert "## Regressions" in report
+    assert "## Unstable Cases" in report
     assert "pass@2" in report
     assert "| case_a | html |" in report
     assert "| case_b | html |" in report
     assert "+50.0 pp" in report
+    assert "`case_b`: A failed, B passed" in report

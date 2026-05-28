@@ -1,5 +1,8 @@
 name: agent_off
 generation:
   agent: false
+java_service:
+  params:
+    agent.orchestrator.enabled: false
 metadata:
   hypothesis: Single-agent generation baseline

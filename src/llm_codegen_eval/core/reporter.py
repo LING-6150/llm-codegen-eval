@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .case import EvalCase
 from .result import EvalResult
@@ -176,6 +176,11 @@ def generate_ab_report(
     pass1_b = stats.pass_at_k(results_b, 1)
     stability_a = stats.stability_by_case(results_a)
     stability_b = stats.stability_by_case(results_b)
+    pass_delta = pass_b["pass_rate"] - pass_a["pass_rate"]
+    score_delta = summary_b.get("avg_score", 0) - summary_a.get("avg_score", 0)
+    duration_delta_ms = summary_b.get("avg_duration_ms", 0) - summary_a.get("avg_duration_ms", 0)
+    duration_delta_pct = _pct_change(summary_a.get("avg_duration_ms", 0), summary_b.get("avg_duration_ms", 0))
+    improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
     lines = []
     lines.append(f"# A/B Eval Report — {name_a} vs {name_b}")
@@ -186,6 +191,25 @@ def generate_ab_report(
     if config_details:
         for key, value in config_details.items():
             lines.append(f"**{key}**: {value}")
+    lines.append("")
+
+    lines.append("## Winner Summary")
+    lines.append("")
+    lines.append(f"- **pass@{k} delta (B - A)**: {_format_percent_delta(pass_delta)}")
+    lines.append(f"- **Avg score delta (B - A)**: {score_delta:+.1f}")
+    lines.append(f"- **Avg duration delta (B - A)**: {duration_delta_ms/1000:+.1f}s ({duration_delta_pct:+.1f}%)")
+    if pass_delta > 0:
+        lines.append(f"- **Pass-rate winner**: {name_b}")
+    elif pass_delta < 0:
+        lines.append(f"- **Pass-rate winner**: {name_a}")
+    else:
+        lines.append("- **Pass-rate winner**: tie")
+    if duration_delta_ms < 0:
+        lines.append(f"- **Latency winner**: {name_b}")
+    elif duration_delta_ms > 0:
+        lines.append(f"- **Latency winner**: {name_a}")
+    else:
+        lines.append("- **Latency winner**: tie")
     lines.append("")
 
     lines.append("## Summary")
@@ -212,8 +236,35 @@ def generate_ab_report(
     lines.append(
         f"| Avg duration | {summary_a.get('avg_duration_ms', 0)/1000:.1f}s | "
         f"{summary_b.get('avg_duration_ms', 0)/1000:.1f}s | "
-        f"{(summary_b.get('avg_duration_ms', 0) - summary_a.get('avg_duration_ms', 0))/1000:+.1f}s |"
+        f"{duration_delta_ms/1000:+.1f}s ({duration_delta_pct:+.1f}%) |"
     )
+    lines.append("")
+
+    lines.append("## Improvements")
+    lines.append("")
+    if improvements:
+        for case_id in improvements:
+            lines.append(f"- `{case_id}`: A failed, B passed")
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    lines.append("## Regressions")
+    lines.append("")
+    if regressions:
+        for case_id in regressions:
+            lines.append(f"- `{case_id}`: A passed, B failed")
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    lines.append("## Unstable Cases")
+    lines.append("")
+    if unstable:
+        for case_id, a_label, b_label in unstable:
+            lines.append(f"- `{case_id}`: A {a_label}, B {b_label}")
+    else:
+        lines.append("- None")
     lines.append("")
 
     lines.append("## Per-Case Diff")
@@ -230,11 +281,12 @@ def generate_ab_report(
         b_score = _avg([r.score for r in b_runs])
         a_duration = _avg([r.generation_duration_ms for r in a_runs])
         b_duration = _avg([r.generation_duration_ms for r in b_runs])
+        duration_pct = _pct_change(a_duration, b_duration)
         lines.append(
             f"| {case.case_id} | {case.code_type.value} | {_status(a_pass, a_runs)} | {_status(b_pass, b_runs)} | "
             f"{stability_a.get(case.case_id, {}).get('label', '-')} | "
             f"{stability_b.get(case.case_id, {}).get('label', '-')} | "
-            f"{b_score - a_score:+.1f} | {(b_duration - a_duration)/1000:+.1f}s |"
+            f"{b_score - a_score:+.1f} | {(b_duration - a_duration)/1000:+.1f}s ({duration_pct:+.1f}%) |"
         )
 
     return "\n".join(lines)
@@ -254,3 +306,45 @@ def _status(passed: bool, runs: list[EvalResult]) -> str:
     if any(r.error for r in runs):
         return "⚠️"
     return "❌"
+
+
+def _pct_change(before: float, after: float) -> float:
+    if before == 0:
+        return 0.0
+    return (after - before) / before * 100
+
+
+def _classify_ab_cases(
+    cases: list[EvalCase],
+    grouped_a: dict[str, list[EvalResult]],
+    grouped_b: dict[str, list[EvalResult]],
+    stability_a: dict[str, dict[str, Any]],
+    stability_b: dict[str, dict[str, Any]],
+) -> tuple[list[str], list[str], list[tuple[str, str, str]]]:
+    improvements = []
+    regressions = []
+    unstable = []
+
+    for case in cases:
+        a_runs = grouped_a.get(case.case_id, [])
+        b_runs = grouped_b.get(case.case_id, [])
+        a_pass = any(r.passed for r in a_runs)
+        b_pass = any(r.passed for r in b_runs)
+
+        if not a_pass and b_pass:
+            improvements.append(case.case_id)
+        elif a_pass and not b_pass:
+            regressions.append(case.case_id)
+
+        a_info = stability_a.get(case.case_id)
+        b_info = stability_b.get(case.case_id)
+        a_unstable = a_info and 0 < a_info["passed"] < a_info["total"]
+        b_unstable = b_info and 0 < b_info["passed"] < b_info["total"]
+        if a_unstable or b_unstable:
+            unstable.append((
+                case.case_id,
+                a_info["label"] if a_info else "-",
+                b_info["label"] if b_info else "-",
+            ))
+
+    return improvements, regressions, unstable

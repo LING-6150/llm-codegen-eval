@@ -98,3 +98,9 @@ def save_results(
         json.dumps(serialized, indent=2, ensure_ascii=False, default=str),
         encoding="utf-8"
     )
+
+def load_results(results_path: Path) -> list[EvalResult]:
+    """Load raw EvalResult JSON from a previous benchmark run."""
+    with open(results_path, encoding="utf-8") as f:
+        data = json.load(f)
+    return [EvalResult(**r) for r in data]

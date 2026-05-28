@@ -12,6 +12,9 @@ def test_load_run_config_reads_generation_agent(tmp_path: Path):
             "name: agent_off",
             "generation:",
             "  agent: false",
+            "java_service:",
+            "  params:",
+            "    context.pruning.enabled: true",
             "metadata:",
             "  hypothesis: Single-agent baseline",
         ]),
@@ -22,6 +25,7 @@ def test_load_run_config_reads_generation_agent(tmp_path: Path):
 
     assert config.name == "agent_off"
     assert config.generation.agent is False
+    assert config.java_service["params"]["context.pruning.enabled"] is True
     assert config.metadata["hypothesis"] == "Single-agent baseline"
 
 

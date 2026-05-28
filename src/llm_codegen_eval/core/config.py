@@ -16,6 +16,7 @@ class GenerationConfig:
 class EvalRunConfig:
     name: str
     generation: GenerationConfig = field(default_factory=GenerationConfig)
+    java_service: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -48,9 +49,16 @@ def load_run_config(path: Path) -> EvalRunConfig:
     if not isinstance(metadata, dict):
         raise ConfigError("metadata must be a mapping")
 
+    java_service = data.get("java_service", {})
+    if java_service is None:
+        java_service = {}
+    if not isinstance(java_service, dict):
+        raise ConfigError("java_service must be a mapping")
+
     return EvalRunConfig(
         name=name,
         generation=GenerationConfig(agent=agent),
+        java_service=java_service,
         metadata=metadata,
     )
 

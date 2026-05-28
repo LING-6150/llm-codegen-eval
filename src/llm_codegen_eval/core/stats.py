@@ -31,6 +31,54 @@ def compute_summary(results: list[EvalResult]) -> dict[str, Any]:
         "avg_review_score": avg_review_score,
     }
 
+def results_by_case(results: list[EvalResult]) -> dict[str, list[EvalResult]]:
+    """Group repeated runs by case id, sorted by run_index when present."""
+    grouped: dict[str, list[EvalResult]] = defaultdict(list)
+    for r in results:
+        grouped[r.case_id].append(r)
+
+    for case_results in grouped.values():
+        case_results.sort(key=lambda r: r.run_config.get("run_index", 1))
+
+    return dict(grouped)
+
+def pass_at_k(results: list[EvalResult], k: int) -> dict[str, Any]:
+    """Compute pass@k as cases with at least one passing run in the first k runs."""
+    if k < 1:
+        raise ValueError("k must be >= 1")
+
+    grouped = results_by_case(results)
+    total_cases = len(grouped)
+    if total_cases == 0:
+        return {"k": k, "total_cases": 0, "passed_cases": 0, "pass_rate": 0}
+
+    passed_cases = 0
+    for case_results in grouped.values():
+        sampled = case_results[:k]
+        if any(r.passed for r in sampled):
+            passed_cases += 1
+
+    return {
+        "k": k,
+        "total_cases": total_cases,
+        "passed_cases": passed_cases,
+        "pass_rate": passed_cases / total_cases,
+    }
+
+def stability_by_case(results: list[EvalResult]) -> dict[str, dict[str, Any]]:
+    """Return per-case pass counts across repeated runs."""
+    stability = {}
+    for case_id, case_results in results_by_case(results).items():
+        passed = sum(1 for r in case_results if r.passed)
+        total = len(case_results)
+        stability[case_id] = {
+            "passed": passed,
+            "total": total,
+            "label": f"{passed}/{total}",
+            "stable": passed == total,
+        }
+    return stability
+
 def group_by(results: list[EvalResult], key_fn) -> dict[str, list[EvalResult]]:
     """Group results by a key function."""
     grouped = defaultdict(list)

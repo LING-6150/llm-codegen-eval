@@ -12,18 +12,24 @@ from llm_codegen_eval.core.batch_runner import (
 )
 from llm_codegen_eval.core.reporter import generate_markdown, save_report
 from llm_codegen_eval.core.case import CodeType
+from llm_codegen_eval.core.preflight import (
+    ChatHistoryCleanupConfig,
+    PreflightError,
+    clear_chat_history,
+)
 from llm_codegen_eval.clients.java_client import JavaServiceClient
 
 CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
 
-def progress_callback(idx, total, case_id, phase, result=None):
+def progress_callback(idx, total, case_id, phase, result=None, run_idx: int = 1):
     """Print progress to stdout."""
+    run_label = f" run {run_idx}" if run_idx > 1 else ""
     if phase == "start":
-        print(f"[{idx+1}/{total}] {case_id}: running...", flush=True)
+        print(f"[{idx+1}/{total}] {case_id}{run_label}: running...", flush=True)
     elif phase == "done":
         status = "✅" if result.passed else ("⚠️ ERROR" if result.error else "❌")
         print(
-            f"[{idx+1}/{total}] {case_id}: {status} "
+            f"[{idx+1}/{total}] {case_id}{run_label}: {status} "
             f"score={result.score}/100 "
             f"duration={result.generation_duration_ms/1000:.1f}s",
             flush=True
@@ -32,12 +38,23 @@ def progress_callback(idx, total, case_id, phase, result=None):
 async def main(
     config_name: str = "baseline",
     filter_type: str | None = None,
-    limit: int | None = None
+    limit: int | None = None,
+    clear_history: bool = True,
+    app_id: str | None = None,
+    mysql_db: str = "ling_ai_code_generation",
+    mysql_user: str = "root",
+    mysql_password: str | None = None,
+    mysql_host: str = "localhost",
+    mysql_port: int = 3306,
+    runs_per_case: int = 3,
 ):
     print("=" * 70)
     print(f"LLM Codegen Eval — Batch Run")
     print(f"Config: {config_name}")
     print("=" * 70)
+
+    if runs_per_case < 1:
+        raise ValueError("--runs-per-case must be >= 1")
 
     # Load cases
     cases = load_cases(CASES_PATH)
@@ -56,11 +73,41 @@ async def main(
         print("No cases to run.")
         return
 
+    client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
+
+    def cleanup_chat_history():
+        clear_chat_history(
+            ChatHistoryCleanupConfig(
+                app_id=client.app_id,
+                database=mysql_db,
+                user=mysql_user,
+                password=mysql_password,
+                host=mysql_host,
+                port=mysql_port,
+            )
+        )
+
+    def before_case_run(case, run_index: int, total_runs: int):
+        if clear_history:
+            cleanup_chat_history()
+
+    # Pre-flight cleanup
+    if clear_history:
+        print(f"\nPre-flight: chat_history will be cleared before each case run for appId={client.app_id}.")
+        try:
+            cleanup_chat_history()
+        except PreflightError as e:
+            print(f"❌ Pre-flight failed: {e}")
+            raise
+        print("Pre-flight: mysql cleanup check passed.")
+    else:
+        print("\nPre-flight: chat_history cleanup skipped.")
+
     # Run batch
-    print(f"\nRunning {len(cases)} cases (sequential, this may take a while)...")
+    total_runs = len(cases) * runs_per_case
+    print(f"\nRunning {len(cases)} cases × {runs_per_case} runs ({total_runs} total runs, sequential)...")
     print("-" * 70)
 
-    client = JavaServiceClient()
     start = datetime.now()
 
     try:
@@ -68,7 +115,9 @@ async def main(
             cases,
             client,
             concurrency=1,
-            on_progress=progress_callback
+            on_progress=progress_callback,
+            runs_per_case=runs_per_case,
+            before_run=before_case_run,
         )
     except Exception as e:
         print(f"\n❌ Batch run failed: {e}")
@@ -93,6 +142,9 @@ async def main(
         config_details={
             "Duration": f"{duration:.1f}s",
             "Cases": str(len(cases)),
+            "Runs per case": str(runs_per_case),
+            "App ID": client.app_id,
+            "Chat history cleared": str(clear_history),
         }
     )
 
@@ -102,11 +154,19 @@ async def main(
     # Print summary to console
     from llm_codegen_eval.core.stats import compute_summary
     summary = compute_summary(results)
+    from llm_codegen_eval.core.stats import pass_at_k
+    pass_k = pass_at_k(results, runs_per_case)
+    pass_1 = pass_at_k(results, 1)
     print()
     print("=" * 70)
     print("SUMMARY")
     print("=" * 70)
-    print(f"pass@1:     {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
+    if runs_per_case > 1:
+        print(f"pass@{runs_per_case}:     {pass_k.get('pass_rate', 0):.1%} ({pass_k['passed_cases']}/{pass_k['total_cases']} cases)")
+        print(f"pass@1:     {pass_1.get('pass_rate', 0):.1%} ({pass_1['passed_cases']}/{pass_1['total_cases']} cases)")
+        print(f"Run pass:   {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']} runs)")
+    else:
+        print(f"pass@1:     {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
     print(f"Avg score:  {summary.get('avg_score', 0):.1f}/100")
     print(f"Avg duration: {summary.get('avg_duration_ms', 0)/1000:.1f}s")
     if summary.get("avg_review_score") is not None:
@@ -120,10 +180,32 @@ if __name__ == "__main__":
     parser.add_argument("--type", choices=["html", "multi_file", "vue_project"],
                        help="Filter by code type")
     parser.add_argument("--limit", type=int, help="Limit number of cases (for testing)")
+    parser.add_argument("--runs-per-case", type=int, default=3,
+                       help="Number of independent generations per case for pass@k")
+    parser.add_argument("--app-id", help="Java service appId to use for this run")
+    parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
+                       default=True, help="Clear chat_history for appId before running (default)")
+    parser.add_argument("--no-clear-chat-history", dest="clear_history", action="store_false",
+                       help="Skip chat_history cleanup")
+    parser.add_argument("--mysql-db", default="ling_ai_code_generation",
+                       help="MySQL database containing chat_history")
+    parser.add_argument("--mysql-user", default="root", help="MySQL user")
+    parser.add_argument("--mysql-password",
+                       help="MySQL password; falls back to EVAL_MYSQL_PASSWORD or MYSQL_PWD")
+    parser.add_argument("--mysql-host", default="localhost", help="MySQL host")
+    parser.add_argument("--mysql-port", type=int, default=3306, help="MySQL port")
     args = parser.parse_args()
 
     asyncio.run(main(
         config_name=args.name,
         filter_type=args.type,
-        limit=args.limit
+        limit=args.limit,
+        clear_history=args.clear_history,
+        app_id=args.app_id,
+        mysql_db=args.mysql_db,
+        mysql_user=args.mysql_user,
+        mysql_password=args.mysql_password,
+        mysql_host=args.mysql_host,
+        mysql_port=args.mysql_port,
+        runs_per_case=args.runs_per_case,
     ))

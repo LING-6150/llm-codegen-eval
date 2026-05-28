@@ -3,7 +3,6 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Optional
 
 from .case import EvalCase
 from .result import EvalResult
@@ -14,7 +13,9 @@ async def run_batch(
     cases: list[EvalCase],
     client: JavaServiceClient,
     concurrency: int = 1,
-    on_progress=None
+    on_progress=None,
+    runs_per_case: int = 1,
+    before_run=None,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -25,22 +26,47 @@ async def run_batch(
     # Pre-login once
     await client.login()
 
-    results: list[EvalResult] = []
+    if runs_per_case < 1:
+        raise ValueError("runs_per_case must be >= 1")
+
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def run_with_semaphore(case: EvalCase, idx: int) -> EvalResult:
+    jobs = [
+        (case, case_idx, run_idx)
+        for case_idx, case in enumerate(cases)
+        for run_idx in range(runs_per_case)
+    ]
+
+    async def run_with_semaphore(
+        case: EvalCase,
+        case_idx: int,
+        run_idx: int,
+        job_idx: int,
+    ) -> EvalResult:
         async with semaphore:
             if on_progress:
-                on_progress(idx, len(cases), case.case_id, "start")
+                on_progress(job_idx, len(jobs), case.case_id, "start", run_idx=run_idx + 1)
+
+            if before_run:
+                maybe_awaitable = before_run(case, run_idx + 1, runs_per_case)
+                if asyncio.iscoroutine(maybe_awaitable):
+                    await maybe_awaitable
 
             result = await run_case(case, client)
+            result.run_config.update({
+                "run_index": run_idx + 1,
+                "runs_per_case": runs_per_case,
+            })
 
             if on_progress:
-                on_progress(idx, len(cases), case.case_id, "done", result)
+                on_progress(job_idx, len(jobs), case.case_id, "done", result, run_idx=run_idx + 1)
 
             return result
 
-    tasks = [run_with_semaphore(c, i) for i, c in enumerate(cases)]
+    tasks = [
+        run_with_semaphore(case, case_idx, run_idx, job_idx)
+        for job_idx, (case, case_idx, run_idx) in enumerate(jobs)
+    ]
     results = await asyncio.gather(*tasks, return_exceptions=False)
 
     return results

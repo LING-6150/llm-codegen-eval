@@ -18,6 +18,11 @@ def generate_markdown(
 
     case_map = {c.case_id: c for c in cases}
     summary = stats.compute_summary(results)
+    grouped_results = stats.results_by_case(results)
+    runs_per_case = max((len(v) for v in grouped_results.values()), default=1)
+    pass_at_1 = stats.pass_at_k(results, 1)
+    pass_at_k = stats.pass_at_k(results, runs_per_case)
+    stability = stats.stability_by_case(results)
 
     lines = []
 
@@ -25,7 +30,9 @@ def generate_markdown(
     lines.append(f"# Eval Report — {config_name}")
     lines.append("")
     lines.append(f"**Run at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"**Total cases**: {summary['total']}")
+    lines.append(f"**Total cases**: {len(grouped_results) or summary['total']}")
+    if runs_per_case > 1:
+        lines.append(f"**Total runs**: {summary['total']}")
     if config_details:
         for k, v in config_details.items():
             lines.append(f"**{k}**: {v}")
@@ -34,7 +41,18 @@ def generate_markdown(
     # === Summary ===
     lines.append("## Summary")
     lines.append("")
-    lines.append(f"- **pass@1**: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
+    if runs_per_case > 1:
+        lines.append(
+            f"- **pass@{runs_per_case}**: {pass_at_k['pass_rate']:.1%} "
+            f"({pass_at_k['passed_cases']}/{pass_at_k['total_cases']} cases)"
+        )
+        lines.append(
+            f"- **pass@1**: {pass_at_1['pass_rate']:.1%} "
+            f"({pass_at_1['passed_cases']}/{pass_at_1['total_cases']} cases)"
+        )
+        lines.append(f"- **Run-level pass rate**: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']} runs)")
+    else:
+        lines.append(f"- **pass@1**: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
     lines.append(f"- **Failed**: {summary.get('failed', 0)}")
     lines.append(f"- **Errored**: {summary.get('errored', 0)} (generation/network errors)")
     lines.append(f"- **Avg score**: {summary.get('avg_score', 0):.1f}/100")
@@ -77,18 +95,23 @@ def generate_markdown(
     # === Per case (detailed) ===
     lines.append("## Per-Case Results")
     lines.append("")
-    lines.append("| Case ID | Type | Passed | Score | Required | Optional | Duration | Review |")
-    lines.append("|---------|------|--------|-------|----------|----------|----------|--------|")
-    for r in results:
-        case = case_map.get(r.case_id)
+    lines.append("| Case ID | Type | Passed | Stability | Score | Required | Optional | Duration | Review |")
+    lines.append("|---------|------|--------|-----------|-------|----------|----------|----------|--------|")
+    for case_id, case_results in grouped_results.items():
+        best = max(case_results, key=lambda r: r.score)
+        case = case_map.get(case_id)
         type_str = case.code_type.value if case else "?"
-        pass_str = "✅" if r.passed else ("⚠️" if r.error else "❌")
-        review_str = f"{r.review_score}" if r.review_score is not None else "-"
+        pass_str = "✅" if any(r.passed for r in case_results) else ("⚠️" if any(r.error for r in case_results) else "❌")
+        stability_str = stability.get(case_id, {}).get("label", "-")
+        avg_score = sum(r.score for r in case_results) / len(case_results)
+        avg_duration_ms = sum(r.generation_duration_ms for r in case_results) / len(case_results)
+        review_scores = [r.review_score for r in case_results if r.review_score is not None]
+        review_str = f"{sum(review_scores) / len(review_scores):.1f}" if review_scores else "-"
         lines.append(
-            f"| {r.case_id} | {type_str} | {pass_str} | "
-            f"{r.score}/100 | {r.required_passed}/{r.required_total} | "
-            f"{r.optional_passed}/{r.optional_total} | "
-            f"{r.generation_duration_ms/1000:.1f}s | {review_str} |"
+            f"| {case_id} | {type_str} | {pass_str} | {stability_str} | "
+            f"{avg_score:.1f}/100 (best {best.score}) | {best.required_passed}/{best.required_total} | "
+            f"{best.optional_passed}/{best.optional_total} | "
+            f"{avg_duration_ms/1000:.1f}s | {review_str} |"
         )
     lines.append("")
 

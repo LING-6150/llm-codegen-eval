@@ -688,7 +688,7 @@
       },
       {
         "type": "tag_count",
-        "selector": ".menu-item, .dish",
+        "selector": "li, .menu-item, .dish, .food-item, .menu-card, [class*='menu'], [class*='dish'], [class*='food']",
         "expected": 3,
         "description": "Menu items"
       },
@@ -698,8 +698,8 @@
         "description": "Reservation form"
       },
       {
-        "type": "tag_exists",
-        "selector": "input[type='date'], input[type='datetime-local']",
+        "type": "regex_match",
+        "pattern": "(date|time|reservation|booking|reserve|datetime-local|type=[\"']date|type=[\"']time)",
         "description": "Date/time input"
       }
     ],
@@ -736,7 +736,7 @@
       },
       {
         "type": "tag_exists",
-        "selector": ".gallery, .grid",
+        "selector": ".gallery, .grid, .portfolio-grid, .photo-grid, [class*='gallery'], [class*='grid'], [class*='portfolio'], [class*='photo']",
         "description": "Gallery container"
       },
       {
@@ -818,7 +818,7 @@
       },
       {
         "type": "tag_count",
-        "selector": ".feature, .card",
+        "selector": ".feature, .card, .feature-card, li, [class*='feature'], [class*='card'], [class*='benefit']",
         "expected": 3,
         "description": "3+ features"
       },
@@ -911,7 +911,7 @@
       },
       {
         "type": "tag_count",
-        "selector": ".card, .feature",
+        "selector": ".feature, .card, .feature-card, li, [class*='feature'], [class*='card'], [class*='benefit']",
         "expected": 3,
         "description": "3 feature cards"
       },

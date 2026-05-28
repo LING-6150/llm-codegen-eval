@@ -12,6 +12,7 @@ from llm_codegen_eval.core.batch_runner import (
 )
 from llm_codegen_eval.core.reporter import generate_markdown, save_report
 from llm_codegen_eval.core.case import CodeType
+from llm_codegen_eval.core.config import load_run_config
 from llm_codegen_eval.core.preflight import (
     ChatHistoryCleanupConfig,
     PreflightError,
@@ -47,10 +48,20 @@ async def main(
     mysql_host: str = "localhost",
     mysql_port: int = 3306,
     runs_per_case: int = 3,
+    agent: bool = True,
+    config_path: Path | None = None,
 ):
+    config_metadata = {}
+    if config_path:
+        run_config = load_run_config(config_path)
+        config_name = run_config.name
+        agent = run_config.generation.agent
+        config_metadata = run_config.metadata
+
     print("=" * 70)
     print(f"LLM Codegen Eval — Batch Run")
     print(f"Config: {config_name}")
+    print(f"Agent workflow: {agent}")
     print("=" * 70)
 
     if runs_per_case < 1:
@@ -118,6 +129,7 @@ async def main(
             on_progress=progress_callback,
             runs_per_case=runs_per_case,
             before_run=before_case_run,
+            agent=agent,
         )
     except Exception as e:
         print(f"\n❌ Batch run failed: {e}")
@@ -145,6 +157,8 @@ async def main(
             "Runs per case": str(runs_per_case),
             "App ID": client.app_id,
             "Chat history cleared": str(clear_history),
+            "Agent workflow": str(agent),
+            **{f"Metadata: {k}": v for k, v in config_metadata.items()},
         }
     )
 
@@ -177,11 +191,17 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run LLM codegen eval benchmark")
     parser.add_argument("--name", default="baseline", help="Run config name")
+    parser.add_argument("--config", type=Path,
+                       help="YAML config file defining name and generation settings")
     parser.add_argument("--type", choices=["html", "multi_file", "vue_project"],
                        help="Filter by code type")
     parser.add_argument("--limit", type=int, help="Limit number of cases (for testing)")
     parser.add_argument("--runs-per-case", type=int, default=3,
                        help="Number of independent generations per case for pass@k")
+    parser.add_argument("--agent", dest="agent", action="store_true",
+                       default=True, help="Use Java Multi-Agent workflow (default)")
+    parser.add_argument("--no-agent", dest="agent", action="store_false",
+                       help="Use single-agent generation")
     parser.add_argument("--app-id", help="Java service appId to use for this run")
     parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
                        default=True, help="Clear chat_history for appId before running (default)")
@@ -208,4 +228,6 @@ if __name__ == "__main__":
         mysql_host=args.mysql_host,
         mysql_port=args.mysql_port,
         runs_per_case=args.runs_per_case,
+        agent=args.agent,
+        config_path=args.config,
     ))

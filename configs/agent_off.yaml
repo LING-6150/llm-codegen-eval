@@ -1,0 +1,5 @@
+name: agent_off
+generation:
+  agent: false
+metadata:
+  hypothesis: Single-agent generation baseline

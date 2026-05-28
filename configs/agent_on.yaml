@@ -1,0 +1,5 @@
+name: agent_on
+generation:
+  agent: true
+metadata:
+  hypothesis: Multi-Agent workflow enabled

@@ -16,6 +16,7 @@ async def run_batch(
     on_progress=None,
     runs_per_case: int = 1,
     before_run=None,
+    agent: bool = True,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -52,10 +53,11 @@ async def run_batch(
                 if asyncio.iscoroutine(maybe_awaitable):
                     await maybe_awaitable
 
-            result = await run_case(case, client)
+            result = await run_case(case, client, agent=agent)
             result.run_config.update({
                 "run_index": run_idx + 1,
                 "runs_per_case": runs_per_case,
+                "agent": agent,
             })
 
             if on_progress:

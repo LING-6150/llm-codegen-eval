@@ -1,0 +1,211 @@
+"""Run two benchmark configurations and generate an A/B diff report."""
+
+import argparse
+import asyncio
+from datetime import datetime
+from pathlib import Path
+
+from llm_codegen_eval.clients.java_client import JavaServiceClient
+from llm_codegen_eval.core.batch_runner import load_cases, run_batch, save_results
+from llm_codegen_eval.core.config import EvalRunConfig, load_run_config
+from llm_codegen_eval.core.preflight import (
+    ChatHistoryCleanupConfig,
+    PreflightError,
+    clear_chat_history,
+)
+from llm_codegen_eval.core.reporter import generate_ab_report, save_report
+
+CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
+
+
+def progress_callback(idx, total, case_id, phase, result=None, run_idx: int = 1):
+    run_label = f" run {run_idx}" if run_idx > 1 else ""
+    if phase == "start":
+        print(f"[{idx+1}/{total}] {case_id}{run_label}: running...", flush=True)
+    elif phase == "done":
+        status = "✅" if result.passed else ("⚠️ ERROR" if result.error else "❌")
+        print(
+            f"[{idx+1}/{total}] {case_id}{run_label}: {status} "
+            f"score={result.score}/100 "
+            f"duration={result.generation_duration_ms/1000:.1f}s",
+            flush=True,
+        )
+
+
+async def run_config(
+    config: EvalRunConfig,
+    cases,
+    app_id: str | None,
+    runs_per_case: int,
+    clear_history: bool,
+    mysql_db: str,
+    mysql_user: str,
+    mysql_password: str | None,
+    mysql_host: str,
+    mysql_port: int,
+):
+    client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
+
+    def cleanup_chat_history():
+        clear_chat_history(
+            ChatHistoryCleanupConfig(
+                app_id=client.app_id,
+                database=mysql_db,
+                user=mysql_user,
+                password=mysql_password,
+                host=mysql_host,
+                port=mysql_port,
+            )
+        )
+
+    def before_case_run(case, run_index: int, total_runs: int):
+        if clear_history:
+            cleanup_chat_history()
+
+    if clear_history:
+        print(f"\nPre-flight ({config.name}): checking chat_history cleanup for appId={client.app_id}...")
+        cleanup_chat_history()
+        print(f"Pre-flight ({config.name}): mysql cleanup check passed.")
+
+    print(f"\nRunning config {config.name} (agent={config.generation.agent})")
+    print("-" * 70)
+
+    return await run_batch(
+        cases,
+        client,
+        concurrency=1,
+        on_progress=progress_callback,
+        runs_per_case=runs_per_case,
+        before_run=before_case_run,
+        agent=config.generation.agent,
+    )
+
+
+async def main(
+    config_a_path: Path,
+    config_b_path: Path,
+    filter_type: str | None = None,
+    limit: int | None = None,
+    runs_per_case: int = 3,
+    clear_history: bool = True,
+    app_id: str | None = None,
+    mysql_db: str = "ling_ai_code_generation",
+    mysql_user: str = "root",
+    mysql_password: str | None = None,
+    mysql_host: str = "localhost",
+    mysql_port: int = 3306,
+):
+    if runs_per_case < 1:
+        raise ValueError("--runs-per-case must be >= 1")
+
+    config_a = load_run_config(config_a_path)
+    config_b = load_run_config(config_b_path)
+
+    cases = load_cases(CASES_PATH)
+    if filter_type:
+        cases = [c for c in cases if c.code_type.value == filter_type]
+    if limit:
+        cases = cases[:limit]
+    if not cases:
+        print("No cases to run.")
+        return
+
+    print("=" * 70)
+    print("LLM Codegen Eval — A/B Run")
+    print(f"A: {config_a.name} (agent={config_a.generation.agent})")
+    print(f"B: {config_b.name} (agent={config_b.generation.agent})")
+    print(f"Cases: {len(cases)} × {runs_per_case} runs × 2 configs")
+    print("=" * 70)
+
+    start = datetime.now()
+    try:
+        results_a = await run_config(
+            config_a,
+            cases,
+            app_id,
+            runs_per_case,
+            clear_history,
+            mysql_db,
+            mysql_user,
+            mysql_password,
+            mysql_host,
+            mysql_port,
+        )
+        results_b = await run_config(
+            config_b,
+            cases,
+            app_id,
+            runs_per_case,
+            clear_history,
+            mysql_db,
+            mysql_user,
+            mysql_password,
+            mysql_host,
+            mysql_port,
+        )
+    except PreflightError as e:
+        print(f"❌ Pre-flight failed: {e}")
+        raise
+
+    duration = (datetime.now() - start).total_seconds()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    raw_a_path = Path(f"reports/raw_ab_{config_a.name}_{timestamp}.json")
+    raw_b_path = Path(f"reports/raw_ab_{config_b.name}_{timestamp}.json")
+    save_results(results_a, raw_a_path)
+    save_results(results_b, raw_b_path)
+
+    report = generate_ab_report(
+        results_a,
+        results_b,
+        cases,
+        config_a.name,
+        config_b.name,
+        config_details={
+            "Duration": f"{duration:.1f}s",
+            "Runs per case": str(runs_per_case),
+            "Chat history cleared": str(clear_history),
+            "Raw A": str(raw_a_path),
+            "Raw B": str(raw_b_path),
+        },
+    )
+    report_path = save_report(report, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}")
+
+    print("-" * 70)
+    print(f"A raw results saved to: {raw_a_path}")
+    print(f"B raw results saved to: {raw_b_path}")
+    print(f"A/B report saved to: {report_path}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run A/B benchmark comparison")
+    parser.add_argument("--config-a", type=Path, required=True, help="YAML config for variant A")
+    parser.add_argument("--config-b", type=Path, required=True, help="YAML config for variant B")
+    parser.add_argument("--type", choices=["html", "multi_file", "vue_project"], help="Filter by code type")
+    parser.add_argument("--limit", type=int, help="Limit number of cases")
+    parser.add_argument("--runs-per-case", type=int, default=3, help="Independent generations per case")
+    parser.add_argument("--app-id", help="Java service appId to use")
+    parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
+                        default=True, help="Clear chat_history before each case run (default)")
+    parser.add_argument("--no-clear-chat-history", dest="clear_history", action="store_false",
+                        help="Skip chat_history cleanup")
+    parser.add_argument("--mysql-db", default="ling_ai_code_generation")
+    parser.add_argument("--mysql-user", default="root")
+    parser.add_argument("--mysql-password", help="Falls back to EVAL_MYSQL_PASSWORD or MYSQL_PWD")
+    parser.add_argument("--mysql-host", default="localhost")
+    parser.add_argument("--mysql-port", type=int, default=3306)
+    args = parser.parse_args()
+
+    asyncio.run(main(
+        config_a_path=args.config_a,
+        config_b_path=args.config_b,
+        filter_type=args.type,
+        limit=args.limit,
+        runs_per_case=args.runs_per_case,
+        clear_history=args.clear_history,
+        app_id=args.app_id,
+        mysql_db=args.mysql_db,
+        mysql_user=args.mysql_user,
+        mysql_password=args.mysql_password,
+        mysql_host=args.mysql_host,
+        mysql_port=args.mysql_port,
+    ))

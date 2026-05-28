@@ -12,9 +12,13 @@ _EVALUATORS: dict[CodeType, type[BaseEvaluator]] = {
     CodeType.VUE_PROJECT: HtmlEvaluator,  # TODO: dedicated VueEvaluator (Day 4)
 }
 
-async def run_case(case: EvalCase, client: JavaServiceClient) -> EvalResult:
+async def run_case(
+    case: EvalCase,
+    client: JavaServiceClient,
+    agent: bool = True,
+) -> EvalResult:
     try:
-        gen_result = await client.generate(case.prompt, agent=True)
+        gen_result = await client.generate(case.prompt, agent=agent)
     except Exception as e:
         return EvalResult(
             case_id=case.case_id,
@@ -24,7 +28,8 @@ async def run_case(case: EvalCase, client: JavaServiceClient) -> EvalResult:
             required_total=len(case.required_checks),
             optional_passed=0,
             optional_total=len(case.optional_checks),
-            error=f"Generation failed: {e}"
+            error=f"Generation failed: {e}",
+            run_config={"agent": agent},
         )
 
     if gen_result.get("error"):
@@ -37,7 +42,8 @@ async def run_case(case: EvalCase, client: JavaServiceClient) -> EvalResult:
             optional_passed=0,
             optional_total=len(case.optional_checks),
             generation_duration_ms=gen_result["duration_ms"],
-            error=f"Workflow error: {gen_result['error']}"
+            error=f"Workflow error: {gen_result['error']}",
+            run_config={"agent": agent},
         )
 
     evaluator_cls = _EVALUATORS.get(case.code_type)
@@ -50,5 +56,6 @@ async def run_case(case: EvalCase, client: JavaServiceClient) -> EvalResult:
     result.generation_duration_ms = gen_result["duration_ms"]
     result.review_score = gen_result.get("review_score")
     result.review_passed = gen_result.get("review_passed")
+    result.run_config.update({"agent": agent})
 
     return result

@@ -149,3 +149,108 @@ def save_report(
     path = output_dir / filename
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def generate_ab_report(
+    results_a: list[EvalResult],
+    results_b: list[EvalResult],
+    cases: list[EvalCase],
+    name_a: str,
+    name_b: str,
+    config_details: Optional[dict] = None,
+) -> str:
+    """Generate a markdown comparison report for two benchmark configurations."""
+
+    case_map = {c.case_id: c for c in cases}
+    grouped_a = stats.results_by_case(results_a)
+    grouped_b = stats.results_by_case(results_b)
+    runs_a = max((len(v) for v in grouped_a.values()), default=1)
+    runs_b = max((len(v) for v in grouped_b.values()), default=1)
+    k = min(runs_a, runs_b)
+
+    summary_a = stats.compute_summary(results_a)
+    summary_b = stats.compute_summary(results_b)
+    pass_a = stats.pass_at_k(results_a, k)
+    pass_b = stats.pass_at_k(results_b, k)
+    pass1_a = stats.pass_at_k(results_a, 1)
+    pass1_b = stats.pass_at_k(results_b, 1)
+    stability_a = stats.stability_by_case(results_a)
+    stability_b = stats.stability_by_case(results_b)
+
+    lines = []
+    lines.append(f"# A/B Eval Report — {name_a} vs {name_b}")
+    lines.append("")
+    lines.append(f"**Run at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"**Cases**: {len(case_map)}")
+    lines.append(f"**Compared k**: {k}")
+    if config_details:
+        for key, value in config_details.items():
+            lines.append(f"**{key}**: {value}")
+    lines.append("")
+
+    lines.append("## Summary")
+    lines.append("")
+    lines.append("| Metric | A: " + name_a + " | B: " + name_b + " | Delta (B - A) |")
+    lines.append("|--------|------|------|---------------|")
+    lines.append(
+        f"| pass@{k} | {pass_a['pass_rate']:.1%} | {pass_b['pass_rate']:.1%} | "
+        f"{_format_percent_delta(pass_b['pass_rate'] - pass_a['pass_rate'])} |"
+    )
+    lines.append(
+        f"| pass@1 | {pass1_a['pass_rate']:.1%} | {pass1_b['pass_rate']:.1%} | "
+        f"{_format_percent_delta(pass1_b['pass_rate'] - pass1_a['pass_rate'])} |"
+    )
+    lines.append(
+        f"| Run-level pass rate | {summary_a.get('pass_rate', 0):.1%} | "
+        f"{summary_b.get('pass_rate', 0):.1%} | "
+        f"{_format_percent_delta(summary_b.get('pass_rate', 0) - summary_a.get('pass_rate', 0))} |"
+    )
+    lines.append(
+        f"| Avg score | {summary_a.get('avg_score', 0):.1f} | {summary_b.get('avg_score', 0):.1f} | "
+        f"{summary_b.get('avg_score', 0) - summary_a.get('avg_score', 0):+.1f} |"
+    )
+    lines.append(
+        f"| Avg duration | {summary_a.get('avg_duration_ms', 0)/1000:.1f}s | "
+        f"{summary_b.get('avg_duration_ms', 0)/1000:.1f}s | "
+        f"{(summary_b.get('avg_duration_ms', 0) - summary_a.get('avg_duration_ms', 0))/1000:+.1f}s |"
+    )
+    lines.append("")
+
+    lines.append("## Per-Case Diff")
+    lines.append("")
+    lines.append("| Case ID | Type | A Pass | B Pass | A Stability | B Stability | Avg Score Delta | Avg Duration Delta |")
+    lines.append("|---------|------|--------|--------|-------------|-------------|-----------------|--------------------|")
+
+    for case in cases:
+        a_runs = grouped_a.get(case.case_id, [])
+        b_runs = grouped_b.get(case.case_id, [])
+        a_pass = any(r.passed for r in a_runs)
+        b_pass = any(r.passed for r in b_runs)
+        a_score = _avg([r.score for r in a_runs])
+        b_score = _avg([r.score for r in b_runs])
+        a_duration = _avg([r.generation_duration_ms for r in a_runs])
+        b_duration = _avg([r.generation_duration_ms for r in b_runs])
+        lines.append(
+            f"| {case.case_id} | {case.code_type.value} | {_status(a_pass, a_runs)} | {_status(b_pass, b_runs)} | "
+            f"{stability_a.get(case.case_id, {}).get('label', '-')} | "
+            f"{stability_b.get(case.case_id, {}).get('label', '-')} | "
+            f"{b_score - a_score:+.1f} | {(b_duration - a_duration)/1000:+.1f}s |"
+        )
+
+    return "\n".join(lines)
+
+
+def _avg(values: list[float | int]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _format_percent_delta(delta: float) -> str:
+    return f"{delta * 100:+.1f} pp"
+
+
+def _status(passed: bool, runs: list[EvalResult]) -> str:
+    if passed:
+        return "✅"
+    if any(r.error for r in runs):
+        return "⚠️"
+    return "❌"

@@ -8,11 +8,20 @@ from pathlib import Path
 from llm_codegen_eval.clients.java_client import JavaServiceClient
 from llm_codegen_eval.core.batch_runner import load_cases, run_batch, save_results
 from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config
+from llm_codegen_eval.core.metrics import (
+    TokenSnapshot,
+    TokenSummary,
+    diff_token_snapshots,
+    extract_token_counters,
+    fetch_prometheus_metrics,
+    summarize_token_delta,
+)
 from llm_codegen_eval.core.preflight import (
     ChatHistoryCleanupConfig,
     PreflightError,
     clear_chat_history,
 )
+from llm_codegen_eval.core.result import EvalResult
 from llm_codegen_eval.core.reporter import generate_ab_report, save_report
 
 CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
@@ -59,7 +68,8 @@ async def run_config(
     mysql_host: str,
     mysql_port: int,
     infra_retries: int,
-):
+    capture_token_metrics: bool,
+) -> tuple[list[EvalResult], TokenSummary | None]:
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
     java_params = java_request_params(config)
 
@@ -84,10 +94,14 @@ async def run_config(
         cleanup_chat_history()
         print(f"Pre-flight ({config.name}): mysql cleanup check passed.")
 
+    token_before = None
+    if capture_token_metrics:
+        token_before = await capture_token_snapshot(client, config.name, "before")
+
     print(f"\nRunning config {config.name} (agent={config.generation.agent}, java_params={java_params or '-'})")
     print("-" * 70)
 
-    return await run_batch(
+    results = await run_batch(
         cases,
         client,
         concurrency=1,
@@ -98,6 +112,41 @@ async def run_config(
         java_params=java_params,
         infra_retries=infra_retries,
     )
+    token_summary = await capture_token_delta(client, config.name, token_before)
+    return results, token_summary
+
+
+async def capture_token_snapshot(
+    client: JavaServiceClient,
+    config_name: str,
+    phase: str,
+) -> TokenSnapshot | None:
+    try:
+        text = await fetch_prometheus_metrics(client.base_url)
+    except Exception as exc:
+        print(f"⚠️ Token metrics ({config_name} {phase}) unavailable: {exc}")
+        return None
+    snapshot = extract_token_counters(text, app_id=client.app_id)
+    print(f"Token metrics ({config_name} {phase}): captured {len(snapshot)} counters for appId={client.app_id}.")
+    return snapshot
+
+
+async def capture_token_delta(
+    client: JavaServiceClient,
+    config_name: str,
+    token_before,
+) -> TokenSummary | None:
+    if token_before is None:
+        return None
+    token_after = await capture_token_snapshot(client, config_name, "after")
+    if token_after is None:
+        return None
+    summary = summarize_token_delta(diff_token_snapshots(token_before, token_after))
+    print(
+        f"Token metrics ({config_name} delta): "
+        f"input={summary['input']:,}, output={summary['output']:,}, total={summary['total']:,}."
+    )
+    return summary
 
 
 async def main(
@@ -114,6 +163,7 @@ async def main(
     mysql_host: str = "localhost",
     mysql_port: int = 3306,
     infra_retries: int = 1,
+    capture_token_metrics: bool = True,
 ):
     if runs_per_case < 1:
         raise ValueError("--runs-per-case must be >= 1")
@@ -141,7 +191,7 @@ async def main(
 
     start = datetime.now()
     try:
-        results_a = await run_config(
+        results_a, token_summary_a = await run_config(
             config_a,
             cases,
             app_id,
@@ -153,8 +203,9 @@ async def main(
             mysql_host,
             mysql_port,
             infra_retries,
+            capture_token_metrics,
         )
-        results_b = await run_config(
+        results_b, token_summary_b = await run_config(
             config_b,
             cases,
             app_id,
@@ -166,6 +217,7 @@ async def main(
             mysql_host,
             mysql_port,
             infra_retries,
+            capture_token_metrics,
         )
     except PreflightError as e:
         print(f"❌ Pre-flight failed: {e}")
@@ -189,11 +241,17 @@ async def main(
             "Runs per case": str(runs_per_case),
             "Chat history cleared": str(clear_history),
             "Infra retries": str(infra_retries),
+            "Token metrics": (
+                "Prometheus counter deltas by sequential config run"
+                if capture_token_metrics else "disabled"
+            ),
             "Config A java_service": config_a.java_service or "-",
             "Config B java_service": config_b.java_service or "-",
             "Raw A": str(raw_a_path),
             "Raw B": str(raw_b_path),
         },
+        token_summary_a=token_summary_a,
+        token_summary_b=token_summary_b,
     )
     report_path = save_report(report, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}")
 
@@ -222,6 +280,10 @@ if __name__ == "__main__":
     parser.add_argument("--mysql-password", help="Falls back to EVAL_MYSQL_PASSWORD or MYSQL_PWD")
     parser.add_argument("--mysql-host", default="localhost")
     parser.add_argument("--mysql-port", type=int, default=3306)
+    parser.add_argument("--capture-token-metrics", dest="capture_token_metrics", action="store_true",
+                        default=True, help="Capture Java Prometheus token counter deltas (default)")
+    parser.add_argument("--no-capture-token-metrics", dest="capture_token_metrics", action="store_false",
+                        help="Skip Prometheus token metric capture")
     args = parser.parse_args()
 
     asyncio.run(main(
@@ -238,4 +300,5 @@ if __name__ == "__main__":
         mysql_host=args.mysql_host,
         mysql_port=args.mysql_port,
         infra_retries=args.infra_retries,
+        capture_token_metrics=args.capture_token_metrics,
     ))

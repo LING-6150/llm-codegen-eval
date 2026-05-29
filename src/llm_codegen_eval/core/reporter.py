@@ -7,6 +7,7 @@ from typing import Any, Optional
 from .case import EvalCase
 from .result import EvalResult
 from . import stats
+from .metrics import TokenSummary
 
 def generate_markdown(
     results: list[EvalResult],
@@ -158,6 +159,8 @@ def generate_ab_report(
     name_a: str,
     name_b: str,
     config_details: Optional[dict] = None,
+    token_summary_a: Optional[TokenSummary] = None,
+    token_summary_b: Optional[TokenSummary] = None,
 ) -> str:
     """Generate a markdown comparison report for two benchmark configurations."""
 
@@ -240,6 +243,10 @@ def generate_ab_report(
         f"{duration_delta_ms/1000:+.1f}s ({duration_delta_pct:+.1f}%) |"
     )
     lines.append("")
+
+    if token_summary_a and token_summary_b:
+        lines.extend(_format_token_summary(token_summary_a, token_summary_b, name_a, name_b))
+        lines.append("")
 
     lines.append("## Improvements")
     lines.append("")
@@ -349,3 +356,62 @@ def _classify_ab_cases(
             ))
 
     return improvements, regressions, unstable
+
+
+def _format_token_summary(
+    token_summary_a: TokenSummary,
+    token_summary_b: TokenSummary,
+    name_a: str,
+    name_b: str,
+) -> list[str]:
+    lines = [
+        "## Token Usage",
+        "",
+        "Prometheus counter deltas captured around each sequential config run.",
+        "Attribution assumes no other AI requests used the same appId during this A/B run.",
+        "",
+        f"| Metric | A: {name_a} | B: {name_b} | Delta (B - A) |",
+        "|--------|------|------|---------------|",
+    ]
+
+    for key, label in [("input", "Input tokens"), ("output", "Output tokens"), ("total", "Total tokens")]:
+        a_value = int(token_summary_a.get(key, 0))
+        b_value = int(token_summary_b.get(key, 0))
+        lines.append(
+            f"| {label} | {_format_int(a_value)} | {_format_int(b_value)} | "
+            f"{_format_int_delta(b_value - a_value)} ({_pct_change(a_value, b_value):+.1f}%) |"
+        )
+
+    by_agent_a = token_summary_a.get("by_agent", {})
+    by_agent_b = token_summary_b.get("by_agent", {})
+    if isinstance(by_agent_a, dict) and isinstance(by_agent_b, dict) and (by_agent_a or by_agent_b):
+        lines.append("")
+        lines.append("### By Agent")
+        lines.append("")
+        lines.append(f"| Agent | A: {name_a} | B: {name_b} | Delta (B - A) |")
+        lines.append("|-------|------|------|---------------|")
+        for agent in sorted(set(by_agent_a) | set(by_agent_b)):
+            a_total = _nested_total(by_agent_a, agent)
+            b_total = _nested_total(by_agent_b, agent)
+            lines.append(
+                f"| {agent} | {_format_int(a_total)} | {_format_int(b_total)} | "
+                f"{_format_int_delta(b_total - a_total)} ({_pct_change(a_total, b_total):+.1f}%) |"
+            )
+
+    return lines
+
+
+def _nested_total(values: dict, key: str) -> int:
+    nested = values.get(key, {})
+    if not isinstance(nested, dict):
+        return 0
+    return int(nested.get("total", 0))
+
+
+def _format_int(value: int) -> str:
+    return f"{value:,}"
+
+
+def _format_int_delta(value: int) -> str:
+    sign = "+" if value >= 0 else "-"
+    return f"{sign}{abs(value):,}"

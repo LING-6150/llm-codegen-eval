@@ -54,3 +54,33 @@ def test_generate_ab_report_includes_summary_and_per_case_diff():
     assert "| case_b | html |" in report
     assert "+50.0 pp" in report
     assert "`case_b`: A failed, B passed" in report
+
+
+def test_generate_ab_report_includes_token_usage_when_provided():
+    cases = [make_case("case_a")]
+    results_a = [make_result("case_a", True, 90, 1)]
+    results_b = [make_result("case_a", True, 90, 1)]
+
+    report = generate_ab_report(
+        results_a,
+        results_b,
+        cases,
+        "pruning_off",
+        "pruning_on",
+        token_summary_a={
+            "input": 1000,
+            "output": 200,
+            "total": 1200,
+            "by_agent": {"CodeGenAgent": {"input": 1000, "output": 200, "total": 1200}},
+        },
+        token_summary_b={
+            "input": 700,
+            "output": 180,
+            "total": 880,
+            "by_agent": {"CodeGenAgent": {"input": 700, "output": 180, "total": 880}},
+        },
+    )
+
+    assert "## Token Usage" in report
+    assert "| Total tokens | 1,200 | 880 | -320 (-26.7%) |" in report
+    assert "| CodeGenAgent | 1,200 | 880 | -320 (-26.7%) |" in report

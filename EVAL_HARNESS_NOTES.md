@@ -41,3 +41,19 @@ Completion checklist:
 - Do not cite results until the real batch finishes successfully.
 - Clear `chat_history` before each run; this is the default in `scripts/run_ab.py`.
 - Treat DeepSeek TLS handshake failures as infrastructure errors, not model-quality failures.
+
+## Issues #14-#18: Offline Eval Harness Polish
+
+### Completed in integration PR
+
+- Added a lightweight `VueEvaluator` for `vue_project` cases.
+- Expanded benchmark and A/B reports with infra/provider error counts and retry visibility.
+- Added GitHub Actions offline pytest workflow; live Java/LLM benchmarks remain manual.
+- Rewrote README around eval-harness architecture, benchmark commands, token attribution, limitations, and roadmap.
+- Added `docs/demo-script.md` for a three-minute interview walkthrough.
+
+### Caveats
+
+- Vue evaluation is structural and regex/text based; cite real `vue_project` quality only after a live benchmark report exists.
+- `pass@3` pruning stability has not been run yet. Run issue #13 on a trusted personal environment with the correct MySQL password, Java service, `uv`, and metric isolation.
+- Do not use company-machine database credentials or guessed passwords for benchmark runs.

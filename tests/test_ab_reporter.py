@@ -1,5 +1,5 @@
 from llm_codegen_eval.core.case import CodeType, Difficulty, EvalCase
-from llm_codegen_eval.core.reporter import generate_ab_report
+from llm_codegen_eval.core.reporter import generate_ab_report, generate_markdown
 from llm_codegen_eval.core.result import EvalResult
 
 
@@ -25,6 +25,12 @@ def make_result(case_id: str, passed: bool, score: int, run_index: int) -> EvalR
         generation_duration_ms=1000,
         run_config={"run_index": run_index, "runs_per_case": 2},
     )
+
+
+def make_error_result(case_id: str, error: str, run_index: int = 1) -> EvalResult:
+    result = make_result(case_id, False, 0, run_index)
+    result.error = error
+    return result
 
 
 def make_retry_result(case_id: str, retries_used: int) -> EvalResult:
@@ -101,3 +107,39 @@ def test_generate_ab_report_sums_infra_retries_used():
     report = generate_ab_report(results_a, results_b, cases, "pruning_off", "pruning_on")
 
     assert "| Infra retries used | 1 | 3 | +2 |" in report
+
+
+def test_generate_ab_report_distinguishes_infra_and_generation_errors():
+    cases = [make_case("case_a"), make_case("case_b")]
+    results_a = [
+        make_error_result("case_a", "Workflow error: Remote host terminated the handshake"),
+        make_error_result("case_b", "Generated code was empty"),
+    ]
+    results_b = [make_result("case_a", True, 90, 1), make_result("case_b", False, 50, 1)]
+
+    report = generate_ab_report(results_a, results_b, cases, "baseline", "candidate")
+
+    assert "| Infra/provider errors | 1 | 0 | -1 |" in report
+    assert "| Other generation errors | 1 | 0 | -1 |" in report
+    assert "| case_a | html | ⚠️ | ✅ | 0/1 | 1/1 | infra 1 | - | 0 | 0 | +90.0 | +0.0s (+0.0%) |" in report
+    assert "| case_b | html | ⚠️ | ❌ | 0/1 | 0/1 | generation 1 | - | 0 | 0 | +50.0 | +0.0s (+0.0%) |" in report
+
+
+def test_generate_markdown_reports_infra_retries_and_error_types():
+    cases = [make_case("case_a"), make_case("case_b")]
+    infra_result = make_error_result(
+        "case_a",
+        "Workflow error: Remote host terminated the handshake",
+    )
+    infra_result.run_config["infra_retries_used"] = 2
+    generation_result = make_error_result("case_b", "Generated code was empty")
+
+    report = generate_markdown([infra_result, generation_result], cases)
+
+    assert "- **Infra retries used**: 2" in report
+    assert "- **Infra/provider errors**: 1" in report
+    assert "- **Other generation errors**: 1" in report
+    assert "| case_a | html | ⚠️ | 0/1 | 2 | infra 1 |" in report
+    assert "| case_b | html | ⚠️ | 0/1 | 0 | generation 1 |" in report
+    assert "**Error type**: infra/provider" in report
+    assert "**Error type**: generation" in report

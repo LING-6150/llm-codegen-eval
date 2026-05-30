@@ -7,6 +7,7 @@ from typing import Any, Optional
 from .case import EvalCase
 from .result import EvalResult
 from . import stats
+from .batch_runner import is_infra_error
 from .metrics import TokenSummary
 
 def generate_markdown(
@@ -24,6 +25,9 @@ def generate_markdown(
     pass_at_1 = stats.pass_at_k(results, 1)
     pass_at_k = stats.pass_at_k(results, runs_per_case)
     stability = stats.stability_by_case(results)
+    infra_retries_used = _infra_retries_used(results)
+    infra_errors = _infra_errors(results)
+    non_infra_errors = _non_infra_errors(results)
 
     lines = []
 
@@ -56,6 +60,9 @@ def generate_markdown(
         lines.append(f"- **pass@1**: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
     lines.append(f"- **Failed**: {summary.get('failed', 0)}")
     lines.append(f"- **Errored**: {summary.get('errored', 0)} (generation/network errors)")
+    lines.append(f"- **Infra retries used**: {infra_retries_used}")
+    lines.append(f"- **Infra/provider errors**: {len(infra_errors)}")
+    lines.append(f"- **Other generation errors**: {len(non_infra_errors)}")
     lines.append(f"- **Avg score**: {summary.get('avg_score', 0):.1f}/100")
     lines.append(f"- **Avg duration**: {summary.get('avg_duration_ms', 0)/1000:.1f}s")
     if summary.get("avg_review_score") is not None:
@@ -96,8 +103,8 @@ def generate_markdown(
     # === Per case (detailed) ===
     lines.append("## Per-Case Results")
     lines.append("")
-    lines.append("| Case ID | Type | Passed | Stability | Score | Required | Optional | Duration | Review |")
-    lines.append("|---------|------|--------|-----------|-------|----------|----------|----------|--------|")
+    lines.append("| Case ID | Type | Passed | Stability | Infra Retries | Errors | Score | Required | Optional | Duration | Review |")
+    lines.append("|---------|------|--------|-----------|---------------|--------|-------|----------|----------|----------|--------|")
     for case_id, case_results in grouped_results.items():
         best = max(case_results, key=lambda r: r.score)
         case = case_map.get(case_id)
@@ -108,8 +115,11 @@ def generate_markdown(
         avg_duration_ms = sum(r.generation_duration_ms for r in case_results) / len(case_results)
         review_scores = [r.review_score for r in case_results if r.review_score is not None]
         review_str = f"{sum(review_scores) / len(review_scores):.1f}" if review_scores else "-"
+        case_infra_retries = _infra_retries_used(case_results)
+        error_str = _error_summary(case_results)
         lines.append(
             f"| {case_id} | {type_str} | {pass_str} | {stability_str} | "
+            f"{case_infra_retries} | {error_str} | "
             f"{avg_score:.1f}/100 (best {best.score}) | {best.required_passed}/{best.required_total} | "
             f"{best.optional_passed}/{best.optional_total} | "
             f"{avg_duration_ms/1000:.1f}s | {review_str} |"
@@ -127,6 +137,7 @@ def generate_markdown(
             if case:
                 lines.append(f"**Prompt**: {case.prompt[:120]}")
             if r.error:
+                lines.append(f"**Error type**: {_error_type(r)}")
                 lines.append(f"**Error**: `{r.error[:200]}`")
             if r.required_failed:
                 lines.append("**Failed required checks**:")
@@ -185,6 +196,10 @@ def generate_ab_report(
     duration_delta_pct = _pct_change(summary_a.get("avg_duration_ms", 0), summary_b.get("avg_duration_ms", 0))
     retries_a = _infra_retries_used(results_a)
     retries_b = _infra_retries_used(results_b)
+    infra_errors_a = len(_infra_errors(results_a))
+    infra_errors_b = len(_infra_errors(results_b))
+    generation_errors_a = len(_non_infra_errors(results_a))
+    generation_errors_b = len(_non_infra_errors(results_b))
     improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
     lines = []
@@ -248,6 +263,14 @@ def generate_ab_report(
         f"| Infra retries used | {retries_a} | {retries_b} | "
         f"{_format_int_delta(retries_b - retries_a)} |"
     )
+    lines.append(
+        f"| Infra/provider errors | {infra_errors_a} | {infra_errors_b} | "
+        f"{_format_int_delta(infra_errors_b - infra_errors_a)} |"
+    )
+    lines.append(
+        f"| Other generation errors | {generation_errors_a} | {generation_errors_b} | "
+        f"{_format_int_delta(generation_errors_b - generation_errors_a)} |"
+    )
     lines.append("")
 
     if token_summary_a and token_summary_b:
@@ -283,8 +306,8 @@ def generate_ab_report(
 
     lines.append("## Per-Case Diff")
     lines.append("")
-    lines.append("| Case ID | Type | A Pass | B Pass | A Stability | B Stability | Avg Score Delta | Avg Duration Delta |")
-    lines.append("|---------|------|--------|--------|-------------|-------------|-----------------|--------------------|")
+    lines.append("| Case ID | Type | A Pass | B Pass | A Stability | B Stability | A Errors | B Errors | A Infra Retries | B Infra Retries | Avg Score Delta | Avg Duration Delta |")
+    lines.append("|---------|------|--------|--------|-------------|-------------|----------|----------|-----------------|-----------------|-----------------|--------------------|")
 
     for case in cases:
         a_runs = grouped_a.get(case.case_id, [])
@@ -300,6 +323,8 @@ def generate_ab_report(
             f"| {case.case_id} | {case.code_type.value} | {_status(a_pass, a_runs)} | {_status(b_pass, b_runs)} | "
             f"{stability_a.get(case.case_id, {}).get('label', '-')} | "
             f"{stability_b.get(case.case_id, {}).get('label', '-')} | "
+            f"{_error_summary(a_runs)} | {_error_summary(b_runs)} | "
+            f"{_infra_retries_used(a_runs)} | {_infra_retries_used(b_runs)} | "
             f"{b_score - a_score:+.1f} | {(b_duration - a_duration)/1000:+.1f}s ({duration_pct:+.1f}%) |"
         )
 
@@ -312,6 +337,36 @@ def _avg(values: list[float | int]) -> float:
 
 def _infra_retries_used(results: list[EvalResult]) -> int:
     return sum(int(r.run_config.get("infra_retries_used", 0) or 0) for r in results)
+
+
+def _infra_errors(results: list[EvalResult]) -> list[EvalResult]:
+    return [r for r in results if is_infra_error(r)]
+
+
+def _non_infra_errors(results: list[EvalResult]) -> list[EvalResult]:
+    return [r for r in results if r.error and not is_infra_error(r)]
+
+
+def _error_type(result: EvalResult) -> str:
+    if not result.error:
+        return "-"
+    if is_infra_error(result):
+        return "infra/provider"
+    return "generation"
+
+
+def _error_summary(results: list[EvalResult]) -> str:
+    infra_count = len(_infra_errors(results))
+    generation_count = len(_non_infra_errors(results))
+    if infra_count == 0 and generation_count == 0:
+        return "-"
+
+    parts = []
+    if infra_count:
+        parts.append(f"infra {infra_count}")
+    if generation_count:
+        parts.append(f"generation {generation_count}")
+    return ", ".join(parts)
 
 
 def _format_percent_delta(delta: float) -> str:

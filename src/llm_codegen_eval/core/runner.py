@@ -4,12 +4,13 @@ from .case import EvalCase, CodeType
 from .result import EvalResult
 from ..clients.java_client import JavaServiceClient
 from ..evaluators.html_eval import HtmlEvaluator
+from ..evaluators.vue_eval import VueEvaluator
 from ..evaluators.base import BaseEvaluator
 
 _EVALUATORS: dict[CodeType, type[BaseEvaluator]] = {
     CodeType.HTML: HtmlEvaluator,
     CodeType.MULTI_FILE: HtmlEvaluator,  # TODO: dedicated MultiFileEvaluator (Day 4)
-    CodeType.VUE_PROJECT: HtmlEvaluator,  # TODO: dedicated VueEvaluator (Day 4)
+    CodeType.VUE_PROJECT: VueEvaluator,
 }
 
 async def run_case(

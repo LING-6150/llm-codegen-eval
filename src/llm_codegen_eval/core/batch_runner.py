@@ -82,6 +82,7 @@ async def run_batch(
                 "agent": agent,
                 "java_params": java_params or {},
                 "infra_retries": infra_retries,
+                "infra_retries_used": attempt_idx,
             })
 
             if on_progress:

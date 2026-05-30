@@ -183,6 +183,8 @@ def generate_ab_report(
     score_delta = summary_b.get("avg_score", 0) - summary_a.get("avg_score", 0)
     duration_delta_ms = summary_b.get("avg_duration_ms", 0) - summary_a.get("avg_duration_ms", 0)
     duration_delta_pct = _pct_change(summary_a.get("avg_duration_ms", 0), summary_b.get("avg_duration_ms", 0))
+    retries_a = _infra_retries_used(results_a)
+    retries_b = _infra_retries_used(results_b)
     improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
     lines = []
@@ -241,6 +243,10 @@ def generate_ab_report(
         f"| Avg duration | {summary_a.get('avg_duration_ms', 0)/1000:.1f}s | "
         f"{summary_b.get('avg_duration_ms', 0)/1000:.1f}s | "
         f"{duration_delta_ms/1000:+.1f}s ({duration_delta_pct:+.1f}%) |"
+    )
+    lines.append(
+        f"| Infra retries used | {retries_a} | {retries_b} | "
+        f"{_format_int_delta(retries_b - retries_a)} |"
     )
     lines.append("")
 
@@ -302,6 +308,10 @@ def generate_ab_report(
 
 def _avg(values: list[float | int]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def _infra_retries_used(results: list[EvalResult]) -> int:
+    return sum(int(r.run_config.get("infra_retries_used", 0) or 0) for r in results)
 
 
 def _format_percent_delta(delta: float) -> str:

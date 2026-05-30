@@ -27,6 +27,12 @@ def make_result(case_id: str, passed: bool, score: int, run_index: int) -> EvalR
     )
 
 
+def make_retry_result(case_id: str, retries_used: int) -> EvalResult:
+    result = make_result(case_id, True, 90, 1)
+    result.run_config["infra_retries_used"] = retries_used
+    return result
+
+
 def test_generate_ab_report_includes_summary_and_per_case_diff():
     cases = [make_case("case_a"), make_case("case_b")]
     results_a = [
@@ -50,6 +56,7 @@ def test_generate_ab_report_includes_summary_and_per_case_diff():
     assert "## Regressions" in report
     assert "## Unstable Cases" in report
     assert "pass@2" in report
+    assert "| Infra retries used | 0 | 0 | +0 |" in report
     assert "| case_a | html |" in report
     assert "| case_b | html |" in report
     assert "+50.0 pp" in report
@@ -84,3 +91,13 @@ def test_generate_ab_report_includes_token_usage_when_provided():
     assert "## Token Usage" in report
     assert "| Total tokens | 1,200 | 880 | -320 (-26.7%) |" in report
     assert "| CodeGenAgent | 1,200 | 880 | -320 (-26.7%) |" in report
+
+
+def test_generate_ab_report_sums_infra_retries_used():
+    cases = [make_case("case_a"), make_case("case_b")]
+    results_a = [make_retry_result("case_a", 0), make_retry_result("case_b", 1)]
+    results_b = [make_retry_result("case_a", 2), make_retry_result("case_b", 1)]
+
+    report = generate_ab_report(results_a, results_b, cases, "pruning_off", "pruning_on")
+
+    assert "| Infra retries used | 1 | 3 | +2 |" in report

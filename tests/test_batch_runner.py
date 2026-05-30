@@ -56,6 +56,7 @@ async def test_run_batch_retries_transient_infra_error(monkeypatch):
     assert len(calls) == 2
     assert final_results[0].passed is True
     assert final_results[0].run_config["infra_retries"] == 1
+    assert final_results[0].run_config["infra_retries_used"] == 1
 
 
 @pytest.mark.asyncio
@@ -76,3 +77,4 @@ async def test_run_batch_does_not_retry_non_infra_failure(monkeypatch):
 
     assert len(calls) == 1
     assert final_results[0].passed is False
+    assert final_results[0].run_config["infra_retries_used"] == 0

@@ -155,3 +155,46 @@ Follow-up harness changes:
 
 - Add `--case-id` to live runners so failed tail cases can be rerun directly, e.g. `--case-id multi_018,multi_019,multi_020`.
 - Add suspicious empty generation reporting for `score=0`, empty code, empty error, and generation duration below 1 second.
+
+## Day 7 / Issue #13 Targeted Recovery: Tail Cases Healthy After Restart
+
+Run date: 2026-06-01
+
+Command:
+
+```bash
+EVAL_MYSQL_PASSWORD='LingMysql123!' uv run python scripts/run_ab.py \
+  --config-a configs/pruning_off.yaml \
+  --config-b configs/pruning_on.yaml \
+  --type multi_file \
+  --case-id multi_018,multi_019,multi_020 \
+  --runs-per-case 1 \
+  --infra-retries 1
+```
+
+Artifacts:
+
+- Raw A: `reports/raw_ab_pruning_off_20260601_213337.json`
+- Raw B: `reports/raw_ab_pruning_on_20260601_213337.json`
+- Report: `reports/ab_pruning_off_vs_pruning_on_20260601_213337.md`
+
+Summary:
+
+| Metric | pruning_off | pruning_on | Delta |
+| --- | ---: | ---: | ---: |
+| pass@1 | 100.0% | 100.0% | +0.0 pp |
+| run-level pass rate | 100.0% | 100.0% | +0.0 pp |
+| avg score | 95.0 | 95.0 | +0.0 |
+| avg duration | 84.8s | 69.1s | -15.7s (-18.5%) |
+| infra retries used | 0 | 0 | +0 |
+| infra/provider errors | 0 | 0 | +0 |
+| other generation errors | 0 | 0 | +0 |
+| suspicious empty generations | 0 | 0 | +0 |
+| total tokens | 40,060 | 75,098 | +35,038 (+87.5%) |
+
+Interpretation:
+
+- The targeted rerun confirms `multi_018`, `multi_019`, and `multi_020` are healthy after service recovery.
+- The invalid full attempt's pruning_on tail failures were likely caused by transient Java/provider/SSE run-state issues, not deterministic pruning regressions.
+- Do not use this 3-case recovery run for token-reduction claims; the sample is too small and token usage increased.
+- Next safe step, if continuing Issue #13, is a targeted pass@3 rerun for `multi_018,multi_019,multi_020` or a fresh full pass@3 run after confirming Java service stability.

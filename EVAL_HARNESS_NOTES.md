@@ -198,3 +198,38 @@ Interpretation:
 - The invalid full attempt's pruning_on tail failures were likely caused by transient Java/provider/SSE run-state issues, not deterministic pruning regressions.
 - Do not use this 3-case recovery run for token-reduction claims; the sample is too small and token usage increased.
 - Next safe step, if continuing Issue #13, is a targeted pass@3 rerun for `multi_018,multi_019,multi_020` or a fresh full pass@3 run after confirming Java service stability.
+
+## Day 7 / Issue #13 Targeted pass@3 Attempt: Invalidated by Empty Fast Failures
+
+Run date: 2026-06-01
+
+Command:
+
+```bash
+EVAL_MYSQL_PASSWORD='LingMysql123!' uv run python scripts/run_ab.py \
+  --config-a configs/pruning_off.yaml \
+  --config-b configs/pruning_on.yaml \
+  --type multi_file \
+  --case-id multi_018,multi_019,multi_020 \
+  --runs-per-case 3 \
+  --infra-retries 1
+```
+
+Artifacts:
+
+- Raw A: `reports/raw_ab_pruning_off_20260601_214302.json`
+- Raw B: `reports/raw_ab_pruning_on_20260601_214302.json`
+- Report: `reports/ab_pruning_off_vs_pruning_on_20260601_214302.md`
+
+Invalidation reason:
+
+- pruning_on had `Suspicious empty generations = 9/9`.
+- All pruning_on runs returned in 21-28ms with score 0, empty generated code, and empty error.
+- pruning_on token delta was exactly 0, confirming the Java service did not reach model calls for this variant.
+- pruning_off also showed suspicious empty generations on `multi_020` after one DeepSeek TLS failure on `multi_019`, suggesting the local Java/provider/SSE run state became unhealthy mid-run.
+
+Conclusion:
+
+- Do not cite pass@3, pass@1, latency, or token deltas from this targeted pass@3 attempt.
+- Stop rerunning evals until the Java service is restarted and logs around the first suspicious empty generation are inspected.
+- The harness correctly flags these as suspicious empty generations, so the report is useful for diagnosis but not for model-quality conclusions.

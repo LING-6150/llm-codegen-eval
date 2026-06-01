@@ -233,3 +233,47 @@ Conclusion:
 - Do not cite pass@3, pass@1, latency, or token deltas from this targeted pass@3 attempt.
 - Stop rerunning evals until the Java service is restarted and logs around the first suspicious empty generation are inspected.
 - The harness correctly flags these as suspicious empty generations, so the report is useful for diagnosis but not for model-quality conclusions.
+
+## Day 9A: Java Silent Empty Generation Guardrails
+
+Date: 2026-06-01
+
+Motivation:
+
+- Issue #13 full and targeted pass@3 attempts exposed repeated near-zero-duration empty generations.
+- The eval harness correctly identified these as suspicious, but Java should not silently complete an SSE workflow with empty code and no error.
+- Goal for Day 9A is not provider fallback yet. The goal is fail-fast observability: the system may fail, but it must fail with a clear `workflow_error`.
+
+Java changes:
+
+- `OrchestratorAgent`
+  - Counts streamed CodeGenAgent tokens and accumulates emitted code.
+  - If CodeGenAgent completes with blank code, throws `IllegalStateException`.
+  - Existing orchestrator catch path emits a `workflow_error` SSE event, so eval can classify the run as an explicit generation error instead of `0ms empty code`.
+  - `workflow_error` detail now includes exception class when the original message is null/blank.
+- `AiCodeGeneratorFacade`
+  - `processCodeStream` now propagates save/parse failures downstream instead of logging and completing.
+  - Empty HTML/Multi-File streams fail fast.
+  - Parsed empty Multi-File output fails fast instead of saving no files.
+  - TokenStream errors now include exception class fallback when message is null/blank.
+- `RefineAgent`
+  - TokenStream errors now include exception class fallback when message is null/blank.
+
+Validation:
+
+```bash
+./mvnw -q -Dtest=OrchestratorAgentTest,AiCodeGeneratorFacadeUnitTest,RefineAgentTest test
+./mvnw -q -DskipTests compile
+git diff --check
+```
+
+Result:
+
+- Targeted Java tests passed.
+- Java compile passed.
+- No eval benchmark rerun has been performed after this Java change yet.
+
+Expected next behavior:
+
+- If the Java/provider chain returns an empty stream again, eval should receive an explicit `workflow_error` rather than `score=0`, empty error, empty code, and near-zero duration.
+- After restarting Java service, rerun a small targeted recovery before any full pass@3 experiment.

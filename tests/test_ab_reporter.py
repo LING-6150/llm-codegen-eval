@@ -33,6 +33,14 @@ def make_error_result(case_id: str, error: str, run_index: int = 1) -> EvalResul
     return result
 
 
+def make_suspicious_result(case_id: str, run_index: int = 1) -> EvalResult:
+    result = make_result(case_id, False, 0, run_index)
+    result.generation_duration_ms = 17
+    result.generated_code = ""
+    result.error = None
+    return result
+
+
 def make_retry_result(case_id: str, retries_used: int) -> EvalResult:
     result = make_result(case_id, True, 90, 1)
     result.run_config["infra_retries_used"] = retries_used
@@ -125,6 +133,17 @@ def test_generate_ab_report_distinguishes_infra_and_generation_errors():
     assert "| case_b | html | ⚠️ | ❌ | 0/1 | 0/1 | generation 1 | - | 0 | 0 | +50.0 | +0.0s (+0.0%) |" in report
 
 
+def test_generate_ab_report_flags_suspicious_empty_generations():
+    cases = [make_case("case_a")]
+    results_a = [make_result("case_a", True, 90, 1)]
+    results_b = [make_suspicious_result("case_a")]
+
+    report = generate_ab_report(results_a, results_b, cases, "baseline", "candidate")
+
+    assert "| Suspicious empty generations | 0 | 1 | +1 |" in report
+    assert "| case_a | html | ✅ | ⚠️ | 1/1 | 0/1 | - | suspicious empty 1 | 0 | 0 | -90.0 | -1.0s (-98.3%) |" in report
+
+
 def test_generate_markdown_reports_infra_retries_and_error_types():
     cases = [make_case("case_a"), make_case("case_b")]
     infra_result = make_error_result(
@@ -143,3 +162,14 @@ def test_generate_markdown_reports_infra_retries_and_error_types():
     assert "| case_b | html | ⚠️ | 0/1 | 0 | generation 1 |" in report
     assert "**Error type**: infra/provider" in report
     assert "**Error type**: generation" in report
+
+
+def test_generate_markdown_flags_suspicious_empty_generation():
+    cases = [make_case("case_a")]
+    suspicious = make_suspicious_result("case_a")
+
+    report = generate_markdown([suspicious], cases)
+
+    assert "- **Suspicious empty generations**: 1" in report
+    assert "| case_a | html | ⚠️ | 0/1 | 0 | suspicious empty 1 |" in report
+    assert "**Error type**: suspicious-empty-generation" in report

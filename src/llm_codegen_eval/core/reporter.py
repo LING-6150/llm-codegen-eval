@@ -28,6 +28,7 @@ def generate_markdown(
     infra_retries_used = _infra_retries_used(results)
     infra_errors = _infra_errors(results)
     non_infra_errors = _non_infra_errors(results)
+    suspicious_empty = _suspicious_empty_generations(results)
 
     lines = []
 
@@ -63,6 +64,7 @@ def generate_markdown(
     lines.append(f"- **Infra retries used**: {infra_retries_used}")
     lines.append(f"- **Infra/provider errors**: {len(infra_errors)}")
     lines.append(f"- **Other generation errors**: {len(non_infra_errors)}")
+    lines.append(f"- **Suspicious empty generations**: {len(suspicious_empty)}")
     lines.append(f"- **Avg score**: {summary.get('avg_score', 0):.1f}/100")
     lines.append(f"- **Avg duration**: {summary.get('avg_duration_ms', 0)/1000:.1f}s")
     if summary.get("avg_review_score") is not None:
@@ -109,7 +111,7 @@ def generate_markdown(
         best = max(case_results, key=lambda r: r.score)
         case = case_map.get(case_id)
         type_str = case.code_type.value if case else "?"
-        pass_str = "✅" if any(r.passed for r in case_results) else ("⚠️" if any(r.error for r in case_results) else "❌")
+        pass_str = "✅" if any(r.passed for r in case_results) else ("⚠️" if _has_error_or_suspicious(case_results) else "❌")
         stability_str = stability.get(case_id, {}).get("label", "-")
         avg_score = sum(r.score for r in case_results) / len(case_results)
         avg_duration_ms = sum(r.generation_duration_ms for r in case_results) / len(case_results)
@@ -139,6 +141,9 @@ def generate_markdown(
             if r.error:
                 lines.append(f"**Error type**: {_error_type(r)}")
                 lines.append(f"**Error**: `{r.error[:200]}`")
+            elif _is_suspicious_empty_generation(r):
+                lines.append("**Error type**: suspicious-empty-generation")
+                lines.append("**Error**: empty code with near-zero generation duration")
             if r.required_failed:
                 lines.append("**Failed required checks**:")
                 for check in r.required_failed:
@@ -200,6 +205,8 @@ def generate_ab_report(
     infra_errors_b = len(_infra_errors(results_b))
     generation_errors_a = len(_non_infra_errors(results_a))
     generation_errors_b = len(_non_infra_errors(results_b))
+    suspicious_a = len(_suspicious_empty_generations(results_a))
+    suspicious_b = len(_suspicious_empty_generations(results_b))
     improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
     lines = []
@@ -270,6 +277,10 @@ def generate_ab_report(
     lines.append(
         f"| Other generation errors | {generation_errors_a} | {generation_errors_b} | "
         f"{_format_int_delta(generation_errors_b - generation_errors_a)} |"
+    )
+    lines.append(
+        f"| Suspicious empty generations | {suspicious_a} | {suspicious_b} | "
+        f"{_format_int_delta(suspicious_b - suspicious_a)} |"
     )
     lines.append("")
 
@@ -347,8 +358,28 @@ def _non_infra_errors(results: list[EvalResult]) -> list[EvalResult]:
     return [r for r in results if r.error and not is_infra_error(r)]
 
 
+def _suspicious_empty_generations(results: list[EvalResult]) -> list[EvalResult]:
+    return [r for r in results if _is_suspicious_empty_generation(r)]
+
+
+def _is_suspicious_empty_generation(result: EvalResult) -> bool:
+    return (
+        not result.passed
+        and result.score == 0
+        and not result.error
+        and result.generation_duration_ms < 1000
+        and not result.generated_code.strip()
+    )
+
+
+def _has_error_or_suspicious(results: list[EvalResult]) -> bool:
+    return any(r.error or _is_suspicious_empty_generation(r) for r in results)
+
+
 def _error_type(result: EvalResult) -> str:
     if not result.error:
+        if _is_suspicious_empty_generation(result):
+            return "suspicious-empty-generation"
         return "-"
     if is_infra_error(result):
         return "infra/provider"
@@ -358,7 +389,8 @@ def _error_type(result: EvalResult) -> str:
 def _error_summary(results: list[EvalResult]) -> str:
     infra_count = len(_infra_errors(results))
     generation_count = len(_non_infra_errors(results))
-    if infra_count == 0 and generation_count == 0:
+    suspicious_count = len(_suspicious_empty_generations(results))
+    if infra_count == 0 and generation_count == 0 and suspicious_count == 0:
         return "-"
 
     parts = []
@@ -366,6 +398,8 @@ def _error_summary(results: list[EvalResult]) -> str:
         parts.append(f"infra {infra_count}")
     if generation_count:
         parts.append(f"generation {generation_count}")
+    if suspicious_count:
+        parts.append(f"suspicious empty {suspicious_count}")
     return ", ".join(parts)
 
 
@@ -376,7 +410,7 @@ def _format_percent_delta(delta: float) -> str:
 def _status(passed: bool, runs: list[EvalResult]) -> str:
     if passed:
         return "✅"
-    if any(r.error for r in runs):
+    if _has_error_or_suspicious(runs):
         return "⚠️"
     return "❌"
 

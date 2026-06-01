@@ -107,3 +107,51 @@ Interpretation:
 - Do not cite token reduction from this smoke run. Token usage increased by 17.0% on the subset, likely because token usage is sensitive to stochastic generation length and the subset is small.
 - The strongest token-reduction result remains the earlier 10-case pass@1 run: total tokens -7.0%, pass@1 unchanged at 90.0%.
 - Issue #13 should remain open until the full 10-case `runs_per_case=3` benchmark is run, or until the scope is explicitly changed to smoke-only.
+
+## Day 7 / Issue #13 Full Attempt: Invalidated by Empty Fast Failures
+
+Run date: 2026-05-30
+
+Command:
+
+```bash
+EVAL_MYSQL_PASSWORD='LingMysql123!' uv run python scripts/run_ab.py \
+  --config-a configs/pruning_off.yaml \
+  --config-b configs/pruning_on.yaml \
+  --type multi_file \
+  --runs-per-case 3 \
+  --infra-retries 1
+```
+
+Artifacts:
+
+- Raw A: `reports/raw_ab_pruning_off_20260530_225024.json`
+- Raw B: `reports/raw_ab_pruning_on_20260530_225024.json`
+- Report: `reports/ab_pruning_off_vs_pruning_on_20260530_225024.md`
+
+Observed report summary:
+
+- pass@3: 90.0% -> 70.0%
+- pass@1: 80.0% -> 60.0%
+- total tokens: 1,531,947 -> 1,075,398 (-29.8%)
+
+Invalidation reason:
+
+- The pruning_on tail contained repeated near-zero-duration empty failures after `multi_018`.
+- Examples from raw B:
+  - `multi_018` run 2: 51ms, score 0, empty error
+  - `multi_018` run 3: 28ms, score 0, empty error
+  - `multi_019` runs 1-3: 17-19ms, score 0, empty error
+  - `multi_020` runs 1-3: 14-17ms, score 0, empty error
+- Normal multi-file generations take tens of seconds. These failures likely indicate an unhealthy Java/provider/SSE state, not real pruning quality regressions.
+
+Conclusion:
+
+- Do not cite pass@3, pass@1, latency, or token deltas from this full attempt.
+- Treat this run as a diagnostic artifact only.
+- Keep Issue #13 open.
+
+Follow-up harness changes:
+
+- Add `--case-id` to live runners so failed tail cases can be rerun directly, e.g. `--case-id multi_018,multi_019,multi_020`.
+- Add suspicious empty generation reporting for `score=0`, empty code, empty error, and generation duration below 1 second.

@@ -8,6 +8,7 @@ from pathlib import Path
 from llm_codegen_eval.clients.java_client import JavaServiceClient
 from llm_codegen_eval.core.batch_runner import load_cases, run_batch, save_results
 from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config
+from llm_codegen_eval.core.filters import filter_cases_by_id, parse_case_ids
 from llm_codegen_eval.core.metrics import (
     TokenSnapshot,
     TokenSummary,
@@ -153,6 +154,7 @@ async def main(
     config_a_path: Path,
     config_b_path: Path,
     filter_type: str | None = None,
+    case_id: str | None = None,
     limit: int | None = None,
     runs_per_case: int = 3,
     clear_history: bool = True,
@@ -176,6 +178,9 @@ async def main(
     cases = load_cases(CASES_PATH)
     if filter_type:
         cases = [c for c in cases if c.code_type.value == filter_type]
+    selected_case_ids = parse_case_ids(case_id)
+    if selected_case_ids:
+        cases = filter_cases_by_id(cases, selected_case_ids)
     if limit is not None:
         cases = cases[:limit]
     if not cases:
@@ -186,6 +191,8 @@ async def main(
     print("LLM Codegen Eval — A/B Run")
     print(f"A: {config_a.name} (agent={config_a.generation.agent})")
     print(f"B: {config_b.name} (agent={config_b.generation.agent})")
+    if selected_case_ids:
+        print(f"Selected cases: {', '.join(selected_case_ids)}")
     print(f"Cases: {len(cases)} × {runs_per_case} runs × 2 configs")
     print("=" * 70)
 
@@ -266,6 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--config-a", type=Path, required=True, help="YAML config for variant A")
     parser.add_argument("--config-b", type=Path, required=True, help="YAML config for variant B")
     parser.add_argument("--type", choices=["html", "multi_file", "vue_project"], help="Filter by code type")
+    parser.add_argument("--case-id", help="Comma-separated case ids to run, e.g. multi_018,multi_019")
     parser.add_argument("--limit", type=int, help="Limit number of cases")
     parser.add_argument("--runs-per-case", type=int, default=3, help="Independent generations per case")
     parser.add_argument("--infra-retries", type=int, default=1,
@@ -290,6 +298,7 @@ if __name__ == "__main__":
         config_a_path=args.config_a,
         config_b_path=args.config_b,
         filter_type=args.type,
+        case_id=args.case_id,
         limit=args.limit,
         runs_per_case=args.runs_per_case,
         clear_history=args.clear_history,

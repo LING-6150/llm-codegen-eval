@@ -13,6 +13,7 @@ from llm_codegen_eval.core.batch_runner import (
 from llm_codegen_eval.core.reporter import generate_markdown, save_report
 from llm_codegen_eval.core.case import CodeType
 from llm_codegen_eval.core.config import java_request_params, load_run_config
+from llm_codegen_eval.core.filters import filter_cases_by_id, parse_case_ids
 from llm_codegen_eval.core.preflight import (
     ChatHistoryCleanupConfig,
     PreflightError,
@@ -54,6 +55,7 @@ def progress_callback(
 async def main(
     config_name: str = "baseline",
     filter_type: str | None = None,
+    case_id: str | None = None,
     limit: int | None = None,
     clear_history: bool = True,
     app_id: str | None = None,
@@ -96,6 +98,11 @@ async def main(
     if filter_type:
         cases = [c for c in cases if c.code_type.value == filter_type]
         print(f"Filtered to {len(cases)} {filter_type} cases")
+
+    selected_case_ids = parse_case_ids(case_id)
+    if selected_case_ids:
+        cases = filter_cases_by_id(cases, selected_case_ids)
+        print(f"Filtered to selected cases: {', '.join(selected_case_ids)}")
 
     if limit is not None:
         cases = cases[:limit]
@@ -220,6 +227,7 @@ if __name__ == "__main__":
                        help="YAML config file defining name and generation settings")
     parser.add_argument("--type", choices=["html", "multi_file", "vue_project"],
                        help="Filter by code type")
+    parser.add_argument("--case-id", help="Comma-separated case ids to run, e.g. multi_018,multi_019")
     parser.add_argument("--limit", type=int, help="Limit number of cases (for testing)")
     parser.add_argument("--runs-per-case", type=int, default=3,
                        help="Number of independent generations per case for pass@k")
@@ -246,6 +254,7 @@ if __name__ == "__main__":
     asyncio.run(main(
         config_name=args.name,
         filter_type=args.type,
+        case_id=args.case_id,
         limit=args.limit,
         clear_history=args.clear_history,
         app_id=args.app_id,

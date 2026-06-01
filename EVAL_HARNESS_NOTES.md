@@ -277,3 +277,47 @@ Expected next behavior:
 
 - If the Java/provider chain returns an empty stream again, eval should receive an explicit `workflow_error` rather than `score=0`, empty error, empty code, and near-zero duration.
 - After restarting Java service, rerun a small targeted recovery before any full pass@3 experiment.
+
+## Day 9B: Provider Failure Resilience Observability
+
+Date: 2026-06-01
+
+Decision:
+
+- Do not add model fallback routing yet.
+- Keep pruning experiments clean by first improving classification, retry behavior, and metrics for workflow/provider failures.
+
+Java changes:
+
+- `AiProviderErrorClassifier.classifyWorkflow(...)`
+  - Preserves transient provider labels such as `tls_handshake`, `timeout`, `rate_limit`, `connection`, and `provider_unavailable`.
+  - Adds workflow-layer labels: `workflow_empty_stream`, `workflow_empty_parse`, and `workflow_error`.
+- `AiModelMetricsCollector.recordWorkflowError(...)`
+  - Emits `ai_workflow_errors_total{user_id, app_id, agent_name, error_type, context_pruning}`.
+- `OrchestratorAgent`
+  - Records workflow error metrics whenever the fatal catch path emits a `workflow_error` SSE event.
+
+Eval changes:
+
+- `is_infra_error(...)` now treats these Day 9A workflow guardrails as retryable infra errors:
+  - `CodeGenAgent produced empty code stream`
+  - `AI returned empty code stream`
+- `Parsed multi-file code is empty` is intentionally not treated as infra, because it may be a real model/prompt-format failure rather than provider/SSE instability.
+
+Validation:
+
+```bash
+# Java
+./mvnw -q -Dtest=AiProviderErrorClassifierTest,AiModelMetricsCollectorTest,OrchestratorAgentTest test
+./mvnw -q -DskipTests compile
+git diff --check
+
+# Eval
+uv run pytest
+git diff --check
+```
+
+Expected next behavior:
+
+- Empty streaming workflow failures should be explicit `workflow_error` events, counted in Java metrics, and retried once by the eval harness.
+- If retries still fail, the report should show infra/provider error counts rather than silent suspicious empty generations.

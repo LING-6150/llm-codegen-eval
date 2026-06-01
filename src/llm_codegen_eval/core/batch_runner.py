@@ -149,5 +149,7 @@ def is_infra_error(result: EvalResult) -> bool:
         "connection refused",
         "connection aborted",
         "temporarily unavailable",
+        "produced empty code stream",
+        "returned empty code stream",
     ]
     return any(marker in error for marker in transient_markers)

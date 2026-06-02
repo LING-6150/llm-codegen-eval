@@ -321,3 +321,30 @@ Expected next behavior:
 
 - Empty streaming workflow failures should be explicit `workflow_error` events, counted in Java metrics, and retried once by the eval harness.
 - If retries still fail, the report should show infra/provider error counts rather than silent suspicious empty generations.
+
+## Day 9B.1: Targeted Recovery Follow-Up
+
+Date: 2026-06-02
+
+Observed run:
+
+- Command: targeted A/B recovery for `multi_018,multi_019,multi_020`, `runs_per_case=1`, `infra_retries=1`.
+- Report: `reports/ab_pruning_off_vs_pruning_on_20260602_202029.md`
+
+Result:
+
+- `pruning_off`: all 3 selected cases passed.
+- `pruning_on`: `multi_018` passed, but `multi_019` and `multi_020` still produced suspicious empty generations.
+- The report showed `Suspicious empty generations = 2` for `pruning_on`.
+
+Conclusion:
+
+- This run is not valid for pruning metrics.
+- Day 9B retry classification partially worked, because `multi_019` did trigger an infra retry.
+- However, the final result still had empty generated code with no explicit error, so Java still had one silent empty stream path.
+
+Follow-up Java change:
+
+- Add a controller-level empty SSE guard in `AppController.chatToGenCode(...)`.
+- If the service content stream completes without any business event, Java now emits a `workflow_error` payload before the final `done` event.
+- Expected eval behavior: this should become retryable/observable instead of another `error=None`, `code_len=0`, near-zero-duration suspicious empty generation.

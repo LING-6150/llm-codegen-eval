@@ -48,6 +48,24 @@ async def run_case(
             run_config={"agent": agent, "java_params": java_params or {}},
         )
 
+    if (
+        not gen_result.get("code", "").strip()
+        and not gen_result.get("error")
+        and gen_result.get("duration_ms", 0) < 1000
+    ):
+        return EvalResult(
+            case_id=case.case_id,
+            passed=False,
+            score=0,
+            required_passed=0,
+            required_total=len(case.required_checks),
+            optional_passed=0,
+            optional_total=len(case.optional_checks),
+            generation_duration_ms=gen_result["duration_ms"],
+            error="Infra error: empty response from Java service",
+            run_config={"agent": agent, "java_params": java_params or {}},
+        )
+
     evaluator_cls = _EVALUATORS.get(case.code_type)
     if not evaluator_cls:
         raise ValueError(f"No evaluator for {case.code_type}")

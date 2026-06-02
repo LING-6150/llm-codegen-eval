@@ -9,6 +9,15 @@ from .result import EvalResult
 from .runner import run_case
 from ..clients.java_client import JavaServiceClient
 
+
+class BatchRunAborted(RuntimeError):
+    """Raised when a batch is stopped after repeated infra failures."""
+
+    def __init__(self, message: str, results: list[EvalResult]):
+        super().__init__(message)
+        self.results = results
+
+
 async def run_batch(
     cases: list[EvalCase],
     client: JavaServiceClient,
@@ -19,6 +28,7 @@ async def run_batch(
     agent: bool = True,
     java_params: dict | None = None,
     infra_retries: int = 0,
+    max_consecutive_infra_failures: int = 3,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -33,6 +43,8 @@ async def run_batch(
         raise ValueError("runs_per_case must be >= 1")
     if infra_retries < 0:
         raise ValueError("infra_retries must be >= 0")
+    if max_consecutive_infra_failures < 0:
+        raise ValueError("max_consecutive_infra_failures must be >= 0")
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -89,6 +101,29 @@ async def run_batch(
                 on_progress(job_idx, len(jobs), case.case_id, "done", result, run_idx=run_idx + 1)
 
             return result
+
+    if concurrency == 1:
+        results = []
+        consecutive_infra_failures = 0
+        for job_idx, (case, case_idx, run_idx) in enumerate(jobs):
+            result = await run_with_semaphore(case, case_idx, run_idx, job_idx)
+            results.append(result)
+
+            if is_infra_error(result):
+                consecutive_infra_failures += 1
+            else:
+                consecutive_infra_failures = 0
+
+            if (
+                max_consecutive_infra_failures > 0
+                and consecutive_infra_failures >= max_consecutive_infra_failures
+            ):
+                raise BatchRunAborted(
+                    "Batch aborted after "
+                    f"{consecutive_infra_failures} consecutive infra failures",
+                    results,
+                )
+        return results
 
     tasks = [
         run_with_semaphore(case, case_idx, run_idx, job_idx)
@@ -151,5 +186,6 @@ def is_infra_error(result: EvalResult) -> bool:
         "temporarily unavailable",
         "produced empty code stream",
         "returned empty code stream",
+        "empty response from java service",
     ]
     return any(marker in error for marker in transient_markers)

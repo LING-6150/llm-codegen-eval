@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from llm_codegen_eval.clients.java_client import JavaServiceClient
-from llm_codegen_eval.core.batch_runner import load_cases, run_batch, save_results
+from llm_codegen_eval.core.batch_runner import BatchRunAborted, load_cases, run_batch, save_results
 from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config
 from llm_codegen_eval.core.filters import filter_cases_by_id, parse_case_ids
 from llm_codegen_eval.core.metrics import (
@@ -69,6 +69,7 @@ async def run_config(
     mysql_host: str,
     mysql_port: int,
     infra_retries: int,
+    max_consecutive_infra_failures: int,
     capture_token_metrics: bool,
 ) -> tuple[list[EvalResult], TokenSummary | None]:
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
@@ -112,6 +113,7 @@ async def run_config(
         agent=config.generation.agent,
         java_params=java_params,
         infra_retries=infra_retries,
+        max_consecutive_infra_failures=max_consecutive_infra_failures,
     )
     token_summary = await capture_token_delta(client, config.name, token_before)
     return results, token_summary
@@ -165,12 +167,15 @@ async def main(
     mysql_host: str = "localhost",
     mysql_port: int = 3306,
     infra_retries: int = 1,
+    max_consecutive_infra_failures: int = 3,
     capture_token_metrics: bool = True,
 ):
     if runs_per_case < 1:
         raise ValueError("--runs-per-case must be >= 1")
     if infra_retries < 0:
         raise ValueError("--infra-retries must be >= 0")
+    if max_consecutive_infra_failures < 0:
+        raise ValueError("--max-consecutive-infra-failures must be >= 0")
 
     config_a = load_run_config(config_a_path)
     config_b = load_run_config(config_b_path)
@@ -197,6 +202,11 @@ async def main(
     print("=" * 70)
 
     start = datetime.now()
+    results_a: list[EvalResult] = []
+    results_b: list[EvalResult] = []
+    token_summary_a = None
+    token_summary_b = None
+    aborted_reason = None
     try:
         results_a, token_summary_a = await run_config(
             config_a,
@@ -210,6 +220,7 @@ async def main(
             mysql_host,
             mysql_port,
             infra_retries,
+            max_consecutive_infra_failures,
             capture_token_metrics,
         )
         results_b, token_summary_b = await run_config(
@@ -224,11 +235,20 @@ async def main(
             mysql_host,
             mysql_port,
             infra_retries,
+            max_consecutive_infra_failures,
             capture_token_metrics,
         )
     except PreflightError as e:
         print(f"❌ Pre-flight failed: {e}")
         raise
+    except BatchRunAborted as e:
+        aborted_reason = str(e)
+        if not results_a:
+            results_a = e.results
+        else:
+            results_b = e.results
+        print(f"\n❌ {aborted_reason}")
+        print("Partial raw results and report will be saved for diagnosis.")
 
     duration = (datetime.now() - start).total_seconds()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -248,6 +268,12 @@ async def main(
             "Runs per case": str(runs_per_case),
             "Chat history cleared": str(clear_history),
             "Infra retries": str(infra_retries),
+            "Max consecutive infra failures": str(max_consecutive_infra_failures),
+            "Batch aborted": aborted_reason or "False",
+            "Run validity": (
+                "invalid for model-quality comparison"
+                if aborted_reason else "valid unless report warnings indicate otherwise"
+            ),
             "Token metrics": (
                 "Prometheus counter deltas by sequential config run"
                 if capture_token_metrics else "disabled"
@@ -278,6 +304,8 @@ if __name__ == "__main__":
     parser.add_argument("--runs-per-case", type=int, default=3, help="Independent generations per case")
     parser.add_argument("--infra-retries", type=int, default=1,
                         help="Retries for transient provider/network errors per case run")
+    parser.add_argument("--max-consecutive-infra-failures", type=int, default=3,
+                        help="Abort a sequential batch after this many consecutive infra failures (0 disables)")
     parser.add_argument("--app-id", help="Java service appId to use")
     parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
                         default=True, help="Clear chat_history before each case run (default)")
@@ -309,5 +337,6 @@ if __name__ == "__main__":
         mysql_host=args.mysql_host,
         mysql_port=args.mysql_port,
         infra_retries=args.infra_retries,
+        max_consecutive_infra_failures=args.max_consecutive_infra_failures,
         capture_token_metrics=args.capture_token_metrics,
     ))

@@ -21,9 +21,19 @@ class FakeClient:
         }
 
 
-@pytest.mark.asyncio
-async def test_run_case_passes_agent_flag_to_client():
-    case = EvalCase(
+class EmptyResponseClient:
+    async def generate(self, prompt: str, agent: bool = True, extra_params=None):
+        return {
+            "code": "",
+            "review_score": None,
+            "review_passed": None,
+            "duration_ms": 17,
+            "error": None,
+        }
+
+
+def make_case() -> EvalCase:
+    return EvalCase(
         case_id="html_fake",
         prompt="Create hello page",
         code_type=CodeType.HTML,
@@ -32,6 +42,11 @@ async def test_run_case_passes_agent_flag_to_client():
             ElementCheck(type="tag_exists", selector="h1", description="Heading")
         ],
     )
+
+
+@pytest.mark.asyncio
+async def test_run_case_passes_agent_flag_to_client():
+    case = make_case()
     client = FakeClient()
 
     result = await run_case(case, client, agent=False, java_params={"contextPruning": True})
@@ -41,3 +56,13 @@ async def test_run_case_passes_agent_flag_to_client():
     assert result.passed is True
     assert result.run_config["agent"] is False
     assert result.run_config["java_params"] == {"contextPruning": True}
+
+
+@pytest.mark.asyncio
+async def test_run_case_marks_fast_empty_response_as_infra_error():
+    result = await run_case(make_case(), EmptyResponseClient())
+
+    assert result.passed is False
+    assert result.score == 0
+    assert result.error == "Infra error: empty response from Java service"
+    assert result.generation_duration_ms == 17

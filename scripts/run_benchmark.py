@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime
 
 from llm_codegen_eval.core.batch_runner import (
+    BatchRunAborted,
     run_batch,
     load_cases,
     save_results,
@@ -68,6 +69,7 @@ async def main(
     agent: bool = True,
     config_path: Path | None = None,
     infra_retries: int = 1,
+    max_consecutive_infra_failures: int = 3,
 ):
     config_metadata = {}
     java_params = {}
@@ -89,6 +91,8 @@ async def main(
         raise ValueError("--runs-per-case must be >= 1")
     if infra_retries < 0:
         raise ValueError("--infra-retries must be >= 0")
+    if max_consecutive_infra_failures < 0:
+        raise ValueError("--max-consecutive-infra-failures must be >= 0")
 
     # Load cases
     cases = load_cases(CASES_PATH)
@@ -149,6 +153,7 @@ async def main(
 
     start = datetime.now()
 
+    aborted_reason = None
     try:
         results = await run_batch(
             cases,
@@ -160,7 +165,13 @@ async def main(
             agent=agent,
             java_params=java_params,
             infra_retries=infra_retries,
+            max_consecutive_infra_failures=max_consecutive_infra_failures,
         )
+    except BatchRunAborted as e:
+        results = e.results
+        aborted_reason = str(e)
+        print(f"\n❌ {aborted_reason}")
+        print("Partial raw results and report will be saved for diagnosis.")
     except Exception as e:
         print(f"\n❌ Batch run failed: {e}")
         raise
@@ -190,6 +201,12 @@ async def main(
             "Agent workflow": str(agent),
             "Java params": java_params or "-",
             "Infra retries": str(infra_retries),
+            "Max consecutive infra failures": str(max_consecutive_infra_failures),
+            "Batch aborted": aborted_reason or "False",
+            "Run validity": (
+                "invalid for model-quality comparison"
+                if aborted_reason else "valid unless report warnings indicate otherwise"
+            ),
             **{f"Metadata: {k}": v for k, v in config_metadata.items()},
         }
     )
@@ -232,7 +249,9 @@ if __name__ == "__main__":
     parser.add_argument("--runs-per-case", type=int, default=3,
                        help="Number of independent generations per case for pass@k")
     parser.add_argument("--infra-retries", type=int, default=1,
-                       help="Retries for transient provider/network errors per case run")
+                        help="Retries for transient provider/network errors per case run")
+    parser.add_argument("--max-consecutive-infra-failures", type=int, default=3,
+                        help="Abort a sequential batch after this many consecutive infra failures (0 disables)")
     parser.add_argument("--agent", dest="agent", action="store_true",
                        default=True, help="Use Java Multi-Agent workflow (default)")
     parser.add_argument("--no-agent", dest="agent", action="store_false",
@@ -267,4 +286,5 @@ if __name__ == "__main__":
         agent=args.agent,
         config_path=args.config,
         infra_retries=args.infra_retries,
+        max_consecutive_infra_failures=args.max_consecutive_infra_failures,
     ))

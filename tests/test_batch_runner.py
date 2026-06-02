@@ -78,3 +78,22 @@ async def test_run_batch_does_not_retry_non_infra_failure(monkeypatch):
     assert len(calls) == 1
     assert final_results[0].passed is False
     assert final_results[0].run_config["infra_retries_used"] == 0
+
+
+@pytest.mark.asyncio
+async def test_run_batch_aborts_after_consecutive_infra_failures(monkeypatch):
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return make_result("Infra error: empty response from Java service")
+
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    with pytest.raises(batch_runner.BatchRunAborted) as exc_info:
+        await batch_runner.run_batch(
+            [make_case(), make_case(), make_case(), make_case()],
+            FakeClient(),
+            infra_retries=0,
+            max_consecutive_infra_failures=3,
+        )
+
+    assert "3 consecutive infra failures" in str(exc_info.value)
+    assert len(exc_info.value.results) == 3

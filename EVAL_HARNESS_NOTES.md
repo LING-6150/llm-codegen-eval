@@ -348,3 +348,70 @@ Follow-up Java change:
 - Add a controller-level empty SSE guard in `AppController.chatToGenCode(...)`.
 - If the service content stream completes without any business event, Java now emits a `workflow_error` payload before the final `done` event.
 - Expected eval behavior: this should become retryable/observable instead of another `error=None`, `code_len=0`, near-zero-duration suspicious empty generation.
+
+## Day 9C: Eval Harness Circuit Breaker
+
+Date: 2026-06-02
+
+Trigger:
+
+- After Day 9B.1, targeted tail pass@1 and pass@3 recovery runs succeeded.
+- A subsequent full `multi_file` pass@3 A/B run failed after `multi_011 run 3`.
+- Report: `reports/ab_pruning_off_vs_pruning_on_20260602_215511.md`
+
+Invalidation reason:
+
+- `pruning_off` produced 28 suspicious empty generations after the first infra retry.
+- `pruning_on` produced 30 suspicious empty generations.
+- `pruning_on` token delta was 0, confirming the service did not reach model calls for that variant.
+- `localhost:8123` was not reachable after the run, indicating Java service/run-state failure rather than pruning quality regression.
+
+Conclusion:
+
+- Do not cite pass@k, latency, score, or token deltas from `20260602_215511`.
+- The harness needed a circuit breaker so a long run stops when Java enters a bad state instead of continuing to generate invalid empty results.
+
+Eval changes:
+
+- `run_case(...)`
+  - Converts fast empty Java responses into an explicit infra error:
+    - empty generated code
+    - no workflow error
+    - generation duration under 1 second
+  - Error text: `Infra error: empty response from Java service`
+- `is_infra_error(...)`
+  - Treats `empty response from Java service` as retryable infra.
+- `run_batch(...)`
+  - Adds `max_consecutive_infra_failures`, default `3`.
+  - In sequential mode, aborts the batch after the threshold is reached.
+  - Raises `BatchRunAborted` with partial results for diagnostics.
+- `scripts/run_ab.py` and `scripts/run_benchmark.py`
+  - Add `--max-consecutive-infra-failures`.
+  - Save partial raw results and reports when a batch aborts.
+  - Mark report metadata as invalid for model-quality comparison when aborted.
+
+Validation:
+
+```bash
+uv run pytest
+PYTHONPYCACHEPREFIX=/private/tmp/eval-pycache python3 -m compileall src tests scripts
+git diff --check
+```
+
+Next run protocol:
+
+1. Restart Java service.
+2. Run a small pass@3 smoke with the circuit breaker:
+
+```bash
+EVAL_MYSQL_PASSWORD='LingMysql123!' uv run python scripts/run_ab.py \
+  --config-a configs/pruning_off.yaml \
+  --config-b configs/pruning_on.yaml \
+  --type multi_file \
+  --limit 2 \
+  --runs-per-case 3 \
+  --infra-retries 1 \
+  --max-consecutive-infra-failures 3
+```
+
+3. Only rerun full pass@3 if the smoke has zero suspicious empty generations and no abort.

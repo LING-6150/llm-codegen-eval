@@ -415,3 +415,73 @@ EVAL_MYSQL_PASSWORD='LingMysql123!' uv run python scripts/run_ab.py \
 ```
 
 3. Only rerun full pass@3 if the smoke has zero suspicious empty generations and no abort.
+
+## Day 9D: Cooldown and Sharded Full-Run Protocol
+
+Date: 2026-06-05
+
+Trigger:
+
+- Day 9C fail-fast worked correctly on a full pass@3 attempt.
+- The run aborted after three consecutive infra failures instead of producing a polluted full report.
+- Root cause signal remained provider/runtime stability:
+  - one DeepSeek TLS/handshake failure
+  - followed by fast empty Java service responses
+  - Java health was unavailable after abort
+
+Decision:
+
+- Do not change model/provider variables for the pruning experiment yet.
+- Add a lightweight eval-side cooldown and define a sharded run protocol.
+- Keep Resilience4j fallback/model routing as a later Java reliability task because it can change experiment conditions.
+
+Eval changes:
+
+- `run_batch(...)`
+  - Adds `cooldown_seconds`, default `0`.
+  - Sleeps before retrying an infra failure.
+  - Sleeps between sequential jobs.
+- `scripts/run_ab.py` and `scripts/run_benchmark.py`
+  - Add `--cooldown-seconds`.
+  - Record cooldown in report metadata.
+
+Validation:
+
+```bash
+uv run pytest
+PYTHONPYCACHEPREFIX=/private/tmp/eval-pycache python3 -m compileall src tests scripts
+git diff --check
+```
+
+Recommended #13 protocol:
+
+- Use sharded pass@3 instead of one long 10-case run.
+- Restart Java or at least verify `/api/actuator/health` between shards.
+- Use cooldown to reduce immediate provider retry pressure.
+
+Shard commands:
+
+```bash
+EVAL_MYSQL_PASSWORD='LingMysql123!' uv run python scripts/run_ab.py \
+  --config-a configs/pruning_off.yaml \
+  --config-b configs/pruning_on.yaml \
+  --type multi_file \
+  --case-id multi_011,multi_012 \
+  --runs-per-case 3 \
+  --infra-retries 1 \
+  --max-consecutive-infra-failures 3 \
+  --cooldown-seconds 10
+```
+
+Repeat with:
+
+- `multi_013,multi_014`
+- `multi_015,multi_016`
+- `multi_017,multi_018`
+- `multi_019,multi_020`
+
+Only merge/cite shard results that have:
+
+- `Batch aborted = False`
+- `Suspicious empty generations = 0`
+- no unresolved infra/provider errors after retry

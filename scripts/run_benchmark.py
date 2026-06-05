@@ -70,6 +70,7 @@ async def main(
     config_path: Path | None = None,
     infra_retries: int = 1,
     max_consecutive_infra_failures: int = 3,
+    cooldown_seconds: float = 0,
 ):
     config_metadata = {}
     java_params = {}
@@ -93,6 +94,8 @@ async def main(
         raise ValueError("--infra-retries must be >= 0")
     if max_consecutive_infra_failures < 0:
         raise ValueError("--max-consecutive-infra-failures must be >= 0")
+    if cooldown_seconds < 0:
+        raise ValueError("--cooldown-seconds must be >= 0")
 
     # Load cases
     cases = load_cases(CASES_PATH)
@@ -166,6 +169,7 @@ async def main(
             java_params=java_params,
             infra_retries=infra_retries,
             max_consecutive_infra_failures=max_consecutive_infra_failures,
+            cooldown_seconds=cooldown_seconds,
         )
     except BatchRunAborted as e:
         results = e.results
@@ -202,6 +206,7 @@ async def main(
             "Java params": java_params or "-",
             "Infra retries": str(infra_retries),
             "Max consecutive infra failures": str(max_consecutive_infra_failures),
+            "Cooldown seconds": str(cooldown_seconds),
             "Batch aborted": aborted_reason or "False",
             "Run validity": (
                 "invalid for model-quality comparison"
@@ -252,6 +257,8 @@ if __name__ == "__main__":
                         help="Retries for transient provider/network errors per case run")
     parser.add_argument("--max-consecutive-infra-failures", type=int, default=3,
                         help="Abort a sequential batch after this many consecutive infra failures (0 disables)")
+    parser.add_argument("--cooldown-seconds", type=float, default=0,
+                        help="Sleep between sequential runs and before infra retries")
     parser.add_argument("--agent", dest="agent", action="store_true",
                        default=True, help="Use Java Multi-Agent workflow (default)")
     parser.add_argument("--no-agent", dest="agent", action="store_false",
@@ -287,4 +294,5 @@ if __name__ == "__main__":
         config_path=args.config,
         infra_retries=args.infra_retries,
         max_consecutive_infra_failures=args.max_consecutive_infra_failures,
+        cooldown_seconds=args.cooldown_seconds,
     ))

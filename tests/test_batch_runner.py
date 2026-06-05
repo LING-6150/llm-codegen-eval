@@ -97,3 +97,52 @@ async def test_run_batch_aborts_after_consecutive_infra_failures(monkeypatch):
 
     assert "3 consecutive infra failures" in str(exc_info.value)
     assert len(exc_info.value.results) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_batch_applies_cooldown_between_sequential_jobs(monkeypatch):
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return make_result(None, passed=True)
+
+    monkeypatch.setattr(batch_runner.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    await batch_runner.run_batch(
+        [make_case(), make_case(), make_case()],
+        FakeClient(),
+        cooldown_seconds=2.5,
+    )
+
+    assert sleeps == [2.5, 2.5]
+
+
+@pytest.mark.asyncio
+async def test_run_batch_applies_cooldown_before_infra_retry(monkeypatch):
+    sleeps = []
+    results = [
+        make_result("Workflow error: Remote host terminated the handshake"),
+        make_result(None, passed=True),
+    ]
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return results.pop(0)
+
+    monkeypatch.setattr(batch_runner.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        infra_retries=1,
+        cooldown_seconds=3,
+    )
+
+    assert sleeps == [3]

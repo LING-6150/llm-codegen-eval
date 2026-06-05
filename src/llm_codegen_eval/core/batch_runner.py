@@ -29,6 +29,7 @@ async def run_batch(
     java_params: dict | None = None,
     infra_retries: int = 0,
     max_consecutive_infra_failures: int = 3,
+    cooldown_seconds: float = 0,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -45,6 +46,8 @@ async def run_batch(
         raise ValueError("infra_retries must be >= 0")
     if max_consecutive_infra_failures < 0:
         raise ValueError("max_consecutive_infra_failures must be >= 0")
+    if cooldown_seconds < 0:
+        raise ValueError("cooldown_seconds must be >= 0")
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -86,6 +89,8 @@ async def run_batch(
                         attempt_idx=attempt_idx + 1,
                         max_attempts=infra_retries + 1,
                     )
+                if cooldown_seconds:
+                    await asyncio.sleep(cooldown_seconds)
 
             assert result is not None
             result.run_config.update({
@@ -123,6 +128,8 @@ async def run_batch(
                     f"{consecutive_infra_failures} consecutive infra failures",
                     results,
                 )
+            if cooldown_seconds and job_idx < len(jobs) - 1:
+                await asyncio.sleep(cooldown_seconds)
         return results
 
     tasks = [

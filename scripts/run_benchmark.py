@@ -71,6 +71,7 @@ async def main(
     infra_retries: int = 1,
     max_consecutive_infra_failures: int = 3,
     cooldown_seconds: float = 0,
+    health_check: bool = True,
 ):
     config_metadata = {}
     java_params = {}
@@ -170,6 +171,7 @@ async def main(
             infra_retries=infra_retries,
             max_consecutive_infra_failures=max_consecutive_infra_failures,
             cooldown_seconds=cooldown_seconds,
+            health_check=health_check,
         )
     except BatchRunAborted as e:
         results = e.results
@@ -207,6 +209,7 @@ async def main(
             "Infra retries": str(infra_retries),
             "Max consecutive infra failures": str(max_consecutive_infra_failures),
             "Cooldown seconds": str(cooldown_seconds),
+            "Health check": str(health_check),
             "Batch aborted": aborted_reason or "False",
             "Run validity": (
                 "invalid for model-quality comparison"
@@ -259,6 +262,10 @@ if __name__ == "__main__":
                         help="Abort a sequential batch after this many consecutive infra failures (0 disables)")
     parser.add_argument("--cooldown-seconds", type=float, default=0,
                         help="Sleep between sequential runs and before infra retries")
+    parser.add_argument("--health-check", dest="health_check", action="store_true",
+                        default=True, help="Abort when Java actuator health is not UP (default)")
+    parser.add_argument("--no-health-check", dest="health_check", action="store_false",
+                        help="Disable Java actuator health gate")
     parser.add_argument("--agent", dest="agent", action="store_true",
                        default=True, help="Use Java Multi-Agent workflow (default)")
     parser.add_argument("--no-agent", dest="agent", action="store_false",
@@ -295,4 +302,5 @@ if __name__ == "__main__":
         infra_retries=args.infra_retries,
         max_consecutive_infra_failures=args.max_consecutive_infra_failures,
         cooldown_seconds=args.cooldown_seconds,
+        health_check=args.health_check,
     ))

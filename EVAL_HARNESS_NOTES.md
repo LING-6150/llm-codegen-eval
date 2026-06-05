@@ -485,3 +485,48 @@ Only merge/cite shard results that have:
 - `Batch aborted = False`
 - `Suspicious empty generations = 0`
 - no unresolved infra/provider errors after retry
+
+## Day 9E: Java Health Gate for Eval Runs
+
+Date: 2026-06-05
+
+Trigger:
+
+- Day 9C/9D made invalid long runs visible and recoverable, but the harness still had to observe infra failures before aborting.
+- When Java service health is already down, continuing to send generation requests only wastes time and pollutes partial reports.
+
+Decision:
+
+- Add an eval-side Java health gate.
+- Do not change Java service behavior.
+- Do not add provider retry, fallback routing, or Resilience4j.
+- Keep this as a data-integrity guardrail that does not change model/pruning variables.
+
+Eval changes:
+
+- `JavaServiceClient.health()`
+  - GETs `/api/actuator/health` with a short timeout.
+  - Returns true only for HTTP 200 with `status == "UP"`.
+  - Returns false for connection refused, timeout, non-200, invalid JSON, or non-UP status.
+- `run_batch(...)`
+  - Adds `health_check`, default `True`.
+  - Prechecks Java health before login/run start.
+  - Aborts immediately if Java health is down after an infra error.
+  - Avoids retrying transient errors into a down Java service.
+- `scripts/run_ab.py` and `scripts/run_benchmark.py`
+  - Add `--health-check` / `--no-health-check`.
+  - Record health-check status in report metadata.
+
+Expected behavior:
+
+- If Java is down before a shard starts, the shard aborts with zero results.
+- If Java goes down after a TLS/infra failure, the shard aborts immediately with partial results instead of waiting for three consecutive infra failures.
+- Reports remain invalid for model-quality comparison when aborted, but should be cleaner and faster to diagnose.
+
+Validation:
+
+```bash
+uv run pytest
+PYTHONPYCACHEPREFIX=/private/tmp/eval-pycache python3 -m compileall src tests scripts
+git diff --check
+```

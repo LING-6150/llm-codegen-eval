@@ -30,15 +30,13 @@ async def run_batch(
     infra_retries: int = 0,
     max_consecutive_infra_failures: int = 3,
     cooldown_seconds: float = 0,
+    health_check: bool = True,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
     Note: Default concurrency=1 because the Java service is shared state
     and high concurrency may trigger LLM rate limits or unstable behavior.
     """
-
-    # Pre-login once
-    await client.login()
 
     if runs_per_case < 1:
         raise ValueError("runs_per_case must be >= 1")
@@ -48,6 +46,15 @@ async def run_batch(
         raise ValueError("max_consecutive_infra_failures must be >= 0")
     if cooldown_seconds < 0:
         raise ValueError("cooldown_seconds must be >= 0")
+
+    if health_check and not await client.health():
+        raise BatchRunAborted(
+            "Batch aborted because Java service health check failed before run",
+            [],
+        )
+
+    # Pre-login once
+    await client.login()
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -77,6 +84,12 @@ async def run_batch(
                 result = await run_case(case, client, agent=agent, java_params=java_params)
                 if not is_infra_error(result) or attempt_idx >= infra_retries:
                     break
+
+                if health_check and not await client.health():
+                    raise BatchRunAborted(
+                        "Batch aborted because Java service health check failed after infra error",
+                        [result],
+                    )
 
                 if on_progress:
                     on_progress(
@@ -111,11 +124,19 @@ async def run_batch(
         results = []
         consecutive_infra_failures = 0
         for job_idx, (case, case_idx, run_idx) in enumerate(jobs):
-            result = await run_with_semaphore(case, case_idx, run_idx, job_idx)
+            try:
+                result = await run_with_semaphore(case, case_idx, run_idx, job_idx)
+            except BatchRunAborted as e:
+                raise BatchRunAborted(str(e), results + e.results) from e
             results.append(result)
 
             if is_infra_error(result):
                 consecutive_infra_failures += 1
+                if health_check and not await client.health():
+                    raise BatchRunAborted(
+                        "Batch aborted because Java service health check failed after infra error",
+                        results,
+                    )
             else:
                 consecutive_infra_failures = 0
 

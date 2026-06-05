@@ -71,6 +71,7 @@ async def run_config(
     infra_retries: int,
     max_consecutive_infra_failures: int,
     cooldown_seconds: float,
+    health_check: bool,
     capture_token_metrics: bool,
 ) -> tuple[list[EvalResult], TokenSummary | None]:
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
@@ -116,6 +117,7 @@ async def run_config(
         infra_retries=infra_retries,
         max_consecutive_infra_failures=max_consecutive_infra_failures,
         cooldown_seconds=cooldown_seconds,
+        health_check=health_check,
     )
     token_summary = await capture_token_delta(client, config.name, token_before)
     return results, token_summary
@@ -171,6 +173,7 @@ async def main(
     infra_retries: int = 1,
     max_consecutive_infra_failures: int = 3,
     cooldown_seconds: float = 0,
+    health_check: bool = True,
     capture_token_metrics: bool = True,
 ):
     if runs_per_case < 1:
@@ -227,6 +230,7 @@ async def main(
             infra_retries,
             max_consecutive_infra_failures,
             cooldown_seconds,
+            health_check,
             capture_token_metrics,
         )
         results_b, token_summary_b = await run_config(
@@ -243,6 +247,7 @@ async def main(
             infra_retries,
             max_consecutive_infra_failures,
             cooldown_seconds,
+            health_check,
             capture_token_metrics,
         )
     except PreflightError as e:
@@ -277,6 +282,7 @@ async def main(
             "Infra retries": str(infra_retries),
             "Max consecutive infra failures": str(max_consecutive_infra_failures),
             "Cooldown seconds": str(cooldown_seconds),
+            "Health check": str(health_check),
             "Batch aborted": aborted_reason or "False",
             "Run validity": (
                 "invalid for model-quality comparison"
@@ -316,6 +322,10 @@ if __name__ == "__main__":
                         help="Abort a sequential batch after this many consecutive infra failures (0 disables)")
     parser.add_argument("--cooldown-seconds", type=float, default=0,
                         help="Sleep between sequential runs and before infra retries")
+    parser.add_argument("--health-check", dest="health_check", action="store_true",
+                        default=True, help="Abort when Java actuator health is not UP (default)")
+    parser.add_argument("--no-health-check", dest="health_check", action="store_false",
+                        help="Disable Java actuator health gate")
     parser.add_argument("--app-id", help="Java service appId to use")
     parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
                         default=True, help="Clear chat_history before each case run (default)")
@@ -349,5 +359,6 @@ if __name__ == "__main__":
         infra_retries=args.infra_retries,
         max_consecutive_infra_failures=args.max_consecutive_infra_failures,
         cooldown_seconds=args.cooldown_seconds,
+        health_check=args.health_check,
         capture_token_metrics=args.capture_token_metrics,
     ))

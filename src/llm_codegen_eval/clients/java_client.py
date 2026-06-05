@@ -21,6 +21,18 @@ class JavaServiceClient:
         self.app_id = app_id
         self.cookies: dict = {}
 
+    async def health(self) -> bool:
+        """Return True when the Java service actuator health endpoint is UP."""
+        try:
+            async with httpx.AsyncClient(timeout=3) as client:
+                resp = await client.get(f"{self.base_url}/api/actuator/health")
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+            return data.get("status") == "UP"
+        except Exception:
+            return False
+
     async def login(self):
         async with httpx.AsyncClient() as client:
             resp = await client.post(

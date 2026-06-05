@@ -6,8 +6,14 @@ from llm_codegen_eval.core import batch_runner
 
 
 class FakeClient:
+    def __init__(self, healthy: bool = True):
+        self.healthy = healthy
+
     async def login(self):
         return None
+
+    async def health(self):
+        return self.healthy
 
 
 def make_case() -> EvalCase:
@@ -97,6 +103,80 @@ async def test_run_batch_aborts_after_consecutive_infra_failures(monkeypatch):
 
     assert "3 consecutive infra failures" in str(exc_info.value)
     assert len(exc_info.value.results) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_batch_aborts_when_health_precheck_fails():
+    with pytest.raises(batch_runner.BatchRunAborted) as exc_info:
+        await batch_runner.run_batch(
+            [make_case()],
+            FakeClient(healthy=False),
+        )
+
+    assert "health check failed before run" in str(exc_info.value)
+    assert exc_info.value.results == []
+
+
+@pytest.mark.asyncio
+async def test_run_batch_aborts_after_infra_error_when_health_is_down(monkeypatch):
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        client.healthy = False
+        return make_result("Infra error: empty response from Java service")
+
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    with pytest.raises(batch_runner.BatchRunAborted) as exc_info:
+        await batch_runner.run_batch(
+            [make_case(), make_case()],
+            FakeClient(),
+            infra_retries=0,
+        )
+
+    assert "health check failed after infra error" in str(exc_info.value)
+    assert len(exc_info.value.results) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_batch_does_not_retry_when_health_is_down(monkeypatch):
+    calls = []
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        calls.append(case.case_id)
+        client.healthy = False
+        return make_result("Workflow error: Remote host terminated the handshake")
+
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    with pytest.raises(batch_runner.BatchRunAborted) as exc_info:
+        await batch_runner.run_batch(
+            [make_case()],
+            FakeClient(),
+            infra_retries=1,
+        )
+
+    assert len(calls) == 1
+    assert "health check failed after infra error" in str(exc_info.value)
+    assert len(exc_info.value.results) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_batch_health_check_can_be_disabled(monkeypatch):
+    calls = []
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        calls.append(case.case_id)
+        return make_result(None, passed=True)
+
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    results = await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(healthy=False),
+        health_check=False,
+    )
+
+    assert len(calls) == 1
+    assert results[0].passed is True
 
 
 @pytest.mark.asyncio

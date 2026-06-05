@@ -530,3 +530,79 @@ uv run pytest
 PYTHONPYCACHEPREFIX=/private/tmp/eval-pycache python3 -m compileall src tests scripts
 git diff --check
 ```
+
+## Issue #13 Result: Sharded Multi-File pass@3 Pruning Experiment
+
+Date: 2026-06-06
+
+Protocol:
+
+- Benchmark: `multi_file`
+- Cases: `multi_011` through `multi_020`
+- Runs: `10 cases x 3 runs x 2 configs`
+- Config A: `pruning_off`
+- Config B: `pruning_on`
+- Execution: 5 shards, 2 cases per shard
+- Harness guards:
+  - chat_history cleanup enabled
+  - `--infra-retries 1`
+  - `--max-consecutive-infra-failures 3`
+  - `--cooldown-seconds 10`
+  - health gate enabled
+
+Shard reports:
+
+- `reports/ab_pruning_off_vs_pruning_on_20260605_223240.md` (`multi_011,multi_012`)
+- `reports/ab_pruning_off_vs_pruning_on_20260605_225552.md` (`multi_013,multi_014`)
+- `reports/ab_pruning_off_vs_pruning_on_20260605_232852.md` (`multi_015,multi_016`)
+- `reports/ab_pruning_off_vs_pruning_on_20260606_000544.md` (`multi_017,multi_018`)
+- `reports/ab_pruning_off_vs_pruning_on_20260606_002052.md` (`multi_019,multi_020`)
+
+Combined report:
+
+- `reports/ab_pruning_off_vs_pruning_on_sharded_20260606_002052.md`
+- Raw A: `reports/raw_ab_pruning_off_sharded_20260606_002052.json`
+- Raw B: `reports/raw_ab_pruning_on_sharded_20260606_002052.json`
+
+Validity:
+
+- All shards completed with `Batch aborted = False`.
+- Suspicious empty generations: `0 -> 0`.
+- Infra/provider errors after retry: `0 -> 0`.
+- Infra retries used: `0 -> 1`.
+- Java watch log stayed healthy during successful shards:
+  - `/api/actuator/health` remained 200
+  - FD count stayed near 317-322
+  - `:443` connections returned to 0 after shards
+
+Result:
+
+| Metric | pruning_off | pruning_on | Delta |
+|--------|-------------|------------|-------|
+| pass@3 | 90.0% | 90.0% | +0.0 pp |
+| pass@1 | 90.0% | 90.0% | +0.0 pp |
+| Run-level pass rate | 90.0% | 90.0% | +0.0 pp |
+| Avg score | 85.3 | 85.3 | +0.0 |
+| Avg duration | 67.4s | 67.4s | -0.0s (-0.1%) |
+| Total tokens | 1,415,805 | 1,562,741 | +146,936 (+10.4%) |
+
+Per-agent token deltas:
+
+| Agent | pruning_off | pruning_on | Delta |
+|-------|-------------|------------|-------|
+| CodeGenAgent | 1,248,137 | 1,387,129 | +138,992 (+11.1%) |
+| RefineAgent | 23,710 | 20,446 | -3,264 (-13.8%) |
+| ReviewAgent | 143,958 | 155,166 | +11,208 (+7.8%) |
+
+Interpretation:
+
+- Context pruning did not regress pass@3, pass@1, run-level pass rate, or average score on this sharded multi-file pass@3 experiment.
+- The expected token reduction was not observed in this run. Total tokens increased by 10.4%, mostly from `CodeGenAgent`.
+- `multi_017` remained a stable quality failure in both configs (`0/3 -> 0/3`), so it is not a pruning regression.
+- The valid resume/interview claim from this run is:
+  - "I built a sharded pass@3 A/B eval protocol with health gates and infra invalidation. Context pruning preserved pass@3 on multi-file cases, but the first full sharded run showed +10.4% tokens, so I did not claim token reduction."
+
+Next technical follow-up:
+
+- Investigate why current pruning rules increase `CodeGenAgent` token usage on several shards.
+- Inspect prompt/context payload before and after pruning per agent before rerunning the token-reduction hypothesis.

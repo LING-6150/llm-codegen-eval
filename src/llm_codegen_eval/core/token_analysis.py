@@ -94,6 +94,25 @@ class PairedDirectionSummary:
 
 
 @dataclass(frozen=True)
+class MechanismMeans:
+    requests_started: float
+    prompt_chars: float
+    input_tokens: float
+    mean_prompt_chars_per_request: float | None
+    input_tokens_per_request: float | None
+    n_runs: int
+
+
+@dataclass(frozen=True)
+class CaseMechanismComparison:
+    case_id: str
+    a: MechanismMeans | None
+    b: MechanismMeans | None
+    paired: bool
+    mechanism: str
+
+
+@dataclass(frozen=True)
 class ArmValidity:
     name: str
     total_runs: int
@@ -132,6 +151,7 @@ class TokenAttributionAnalysis:
     by_agent: list[AgentAggregate]
     io_split: IOSplit
     direction: PairedDirectionSummary
+    codegen_mechanism: list[CaseMechanismComparison]
     validity_a: ArmValidity
     validity_b: ArmValidity
     excluded_runs: list[ExcludedRun]
@@ -189,6 +209,14 @@ def analyze_token_attribution(
                 unpaired_cases.append(unpaired)
 
     paired_cases = [case for case in per_case if case.paired]
+    codegen_mechanism = [
+        _case_mechanism_comparison(
+            case_id,
+            _mechanism_means(valid_a.get(case_id, []), "CodeGenAgent"),
+            _mechanism_means(valid_b.get(case_id, []), "CodeGenAgent"),
+        )
+        for case_id in all_case_ids
+    ]
     analysis = TokenAttributionAnalysis(
         name_a=name_a,
         name_b=name_b,
@@ -198,6 +226,7 @@ def analyze_token_attribution(
         by_agent=_agent_aggregates(paired_cases),
         io_split=_io_split(paired_cases),
         direction=_direction_summary(paired_cases),
+        codegen_mechanism=codegen_mechanism,
         validity_a=validity_a,
         validity_b=validity_b,
         excluded_runs=excluded_runs,
@@ -276,6 +305,30 @@ def render_token_attribution_markdown(analysis: TokenAttributionAnalysis) -> str
         f"{_fmt_float(analysis.io_split.b_total)} | "
         f"{_fmt_pct(analysis.io_split.total_delta_pct, signed=True)} |"
     )
+    lines.append("")
+
+    lines.append("## CodeGen Mechanism")
+    lines.append("")
+    lines.append(
+        "| Case | A Requests | B Requests | A Prompt Chars/Req | B Prompt Chars/Req | "
+        "A Input Tokens/Req | B Input Tokens/Req | Mechanism |"
+    )
+    lines.append(
+        "|------|------------|------------|--------------------|--------------------|"
+        "--------------------|--------------------|-----------|"
+    )
+    for case in analysis.codegen_mechanism:
+        lines.append(
+            "| "
+            f"{case.case_id} | "
+            f"{_fmt_float(_mechanism_requests(case.a))} | "
+            f"{_fmt_float(_mechanism_requests(case.b))} | "
+            f"{_fmt_float(_mechanism_prompt_per_request(case.a))} | "
+            f"{_fmt_float(_mechanism_prompt_per_request(case.b))} | "
+            f"{_fmt_float(_mechanism_input_per_request(case.a))} | "
+            f"{_fmt_float(_mechanism_input_per_request(case.b))} | "
+            f"{case.mechanism} |"
+        )
     lines.append("")
 
     lines.append("## Paired Direction Summary")
@@ -441,6 +494,70 @@ def _token_means(results: list[EvalResult]) -> TokenMeans | None:
     )
 
 
+def _mechanism_means(results: list[EvalResult], agent: str) -> MechanismMeans | None:
+    agent_summaries = []
+    for result in results:
+        by_agent = result.run_config.get("mechanism_summary", {}).get("by_agent", {})
+        if isinstance(by_agent, dict) and agent in by_agent:
+            agent_summaries.append(by_agent[agent])
+    if not agent_summaries:
+        return None
+
+    requests = mean(float(summary.get("requests_started", 0) or 0) for summary in agent_summaries)
+    prompt_chars = mean(float(summary.get("prompt_chars", 0) or 0) for summary in agent_summaries)
+    input_tokens = mean(float(summary.get("input_tokens", 0) or 0) for summary in agent_summaries)
+    return MechanismMeans(
+        requests_started=requests,
+        prompt_chars=prompt_chars,
+        input_tokens=input_tokens,
+        mean_prompt_chars_per_request=_mean_optional(
+            summary.get("mean_prompt_chars_per_request") for summary in agent_summaries
+        ),
+        input_tokens_per_request=_mean_optional(
+            summary.get("input_tokens_per_request") for summary in agent_summaries
+        ),
+        n_runs=len(agent_summaries),
+    )
+
+
+def _case_mechanism_comparison(
+    case_id: str,
+    means_a: MechanismMeans | None,
+    means_b: MechanismMeans | None,
+) -> CaseMechanismComparison:
+    paired = means_a is not None and means_b is not None
+    return CaseMechanismComparison(
+        case_id=case_id,
+        a=means_a,
+        b=means_b,
+        paired=paired,
+        mechanism=_classify_codegen_mechanism(means_a, means_b) if paired else "unpaired",
+    )
+
+
+def _classify_codegen_mechanism(
+    means_a: MechanismMeans | None,
+    means_b: MechanismMeans | None,
+) -> str:
+    if means_a is None or means_b is None:
+        return "unpaired"
+    if means_b.requests_started > means_a.requests_started:
+        return "more_codegen_requests"
+    if (
+        means_a.mean_prompt_chars_per_request is not None
+        and means_b.mean_prompt_chars_per_request is not None
+        and means_b.mean_prompt_chars_per_request > means_a.mean_prompt_chars_per_request
+    ):
+        return "larger_prompt_per_request"
+    if (
+        means_a.input_tokens_per_request is not None
+        and means_b.input_tokens_per_request is not None
+        and means_b.input_tokens_per_request > means_a.input_tokens_per_request
+    ):
+        return "tokenization_or_stochastic_effect"
+    return "no_codegen_input_increase"
+
+
 def _summary_by_agent(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
     by_agent = summary.get("by_agent", {})
     return by_agent if isinstance(by_agent, dict) else {}
@@ -451,6 +568,11 @@ def _mean_summary_agent(summaries: list[dict[str, Any]], agent: str, key: str) -
         float(_summary_by_agent(summary).get(agent, {}).get(key, 0) or 0)
         for summary in summaries
     )
+
+
+def _mean_optional(values: Any) -> float | None:
+    numeric_values = [float(value) for value in values if value is not None]
+    return mean(numeric_values) if numeric_values else None
 
 
 def _case_comparison(
@@ -651,6 +773,18 @@ def _agent_input(means_value: TokenMeans | None, agent: str) -> float | None:
 
 def _means_total(means_value: TokenMeans | None) -> float | None:
     return means_value.total if means_value is not None else None
+
+
+def _mechanism_requests(means_value: MechanismMeans | None) -> float | None:
+    return means_value.requests_started if means_value is not None else None
+
+
+def _mechanism_prompt_per_request(means_value: MechanismMeans | None) -> float | None:
+    return means_value.mean_prompt_chars_per_request if means_value is not None else None
+
+
+def _mechanism_input_per_request(means_value: MechanismMeans | None) -> float | None:
+    return means_value.input_tokens_per_request if means_value is not None else None
 
 
 def _fmt_float(value: float | None, signed: bool = False) -> str:

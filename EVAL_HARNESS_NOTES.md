@@ -953,3 +953,87 @@ Next step:
   - CodeGenAgent invocation count.
   - per-call prompt/context token size.
   - actual pruned vs unpruned context fields delivered to CodeGenAgent.
+
+## Day 10D: Eval Consumer for CodeGen Mechanism Diagnostics
+
+Date: 2026-06-06
+
+Issue:
+
+- #22 `Instrument CodeGenAgent input-token mechanism for context pruning experiments`
+
+Context:
+
+- Java now emits `ai_agent_prompt_chars_total` when `context.pruning.diagnostics.enabled=true`.
+- Existing Java metrics already expose `ai_model_requests_total` and `ai_model_tokens_total`.
+- The remaining eval-side gap was converting those counters into per-run, appId-scoped mechanism attribution instead of manually grepping cumulative Prometheus output.
+
+Implementation:
+
+- Extended per-run Prometheus capture from token-only snapshots to diagnostic snapshots:
+  - `ai_model_tokens_total`
+  - `ai_model_requests_total`
+  - `ai_agent_prompt_chars_total`
+- Kept `token_summary` unchanged for backward-compatible token analysis.
+- Added `run_config["mechanism_summary"]` for each captured run.
+- Mechanism summary is grouped by agent and includes:
+  - `requests_started`
+  - `prompt_chars`
+  - `input_tokens`
+  - `mean_prompt_chars_per_request`
+  - `input_tokens_per_request`
+- Extended offline token attribution analysis with a `CodeGen Mechanism` table.
+
+Mechanism classifications:
+
+- `more_codegen_requests`: pruning-on has more `CodeGenAgent` model requests.
+- `larger_prompt_per_request`: request count is not higher, but prompt chars/request is higher.
+- `tokenization_or_stochastic_effect`: prompt chars/request is not higher, but input tokens/request is higher.
+- `no_codegen_input_increase`: no CodeGen input increase signal.
+- `unpaired`: mechanism data missing in one or both arms.
+
+Important boundary:
+
+- Raw reports generated before this eval-side change do not contain `mechanism_summary`; they can still be used for token attribution, but not for mechanism attribution.
+- A new diagnostics-on smoke/full run is required after this change to populate the `CodeGen Mechanism` table.
+
+Verification:
+
+```bash
+uv run pytest tests/test_metrics.py tests/test_batch_runner.py tests/test_token_analysis.py -q
+uv run pytest -q
+PYTHONPYCACHEPREFIX=/private/tmp/eval-pycache python3 -m compileall src tests scripts
+```
+
+Result:
+
+- Targeted tests: `28 passed`
+- Full tests: `60 passed`
+- Compileall: passed
+
+Next step:
+
+- Re-run a small diagnostics-on smoke after pulling this change:
+
+```bash
+EVAL_MYSQL_PASSWORD='LingMysql123!' uv run python scripts/run_ab.py \
+  --config-a configs/pruning_off.yaml \
+  --config-b configs/pruning_on.yaml \
+  --type multi_file \
+  --case-id multi_019,multi_020 \
+  --runs-per-case 1 \
+  --infra-retries 1 \
+  --max-consecutive-infra-failures 3 \
+  --cooldown-seconds 10 \
+  --capture-run-tokens
+```
+
+- Then analyze the new raw files:
+
+```bash
+uv run python scripts/analyze_token_attribution.py \
+  --raw-a reports/raw_ab_pruning_off_<timestamp>.json \
+  --raw-b reports/raw_ab_pruning_on_<timestamp>.json \
+  --config-token-total-a <A total from run_ab output> \
+  --config-token-total-b <B total from run_ab output>
+```

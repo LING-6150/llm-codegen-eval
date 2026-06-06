@@ -19,6 +19,7 @@ def result(
     run_index: int = 1,
     error: str | None = None,
     extra_config: dict | None = None,
+    mechanism: dict | None = None,
 ) -> EvalResult:
     input_value = total if input_tokens is None else input_tokens
     output_value = 0 if output_tokens is None else output_tokens
@@ -31,6 +32,8 @@ def result(
         },
     }
     run_config = {"run_index": run_index, "token_summary": summary}
+    if mechanism:
+        run_config["mechanism_summary"] = mechanism
     if extra_config:
         run_config.update(extra_config)
     return EvalResult(
@@ -173,6 +176,51 @@ def test_analyze_token_attribution_cross_check_uses_accounted_tokens_with_retrie
     assert analysis.validity_b.cross_check_diff == 1
 
 
+def mechanism_summary(
+    requests: int,
+    prompt_chars: int,
+    input_tokens: int,
+) -> dict:
+    return {
+        "by_agent": {
+            "CodeGenAgent": {
+                "requests_started": requests,
+                "prompt_chars": prompt_chars,
+                "input_tokens": input_tokens,
+                "mean_prompt_chars_per_request": prompt_chars / requests if requests else None,
+                "input_tokens_per_request": input_tokens / requests if requests else None,
+            }
+        }
+    }
+
+
+def test_analyze_token_attribution_codegen_mechanism_classifies_cases():
+    results_a = [
+        result("more_requests", 100, mechanism=mechanism_summary(1, 1000, 100)),
+        result("larger_prompt", 100, mechanism=mechanism_summary(1, 1000, 100)),
+        result("tokenization", 100, mechanism=mechanism_summary(1, 1000, 100)),
+        result("no_increase", 100, mechanism=mechanism_summary(1, 1000, 100)),
+    ]
+    results_b = [
+        result("more_requests", 150, mechanism=mechanism_summary(2, 2000, 150)),
+        result("larger_prompt", 150, mechanism=mechanism_summary(1, 1500, 150)),
+        result("tokenization", 150, mechanism=mechanism_summary(1, 900, 150)),
+        result("no_increase", 90, mechanism=mechanism_summary(1, 900, 90)),
+    ]
+
+    analysis = analyze_token_attribution(results_a, results_b)
+    mechanisms = {case.case_id: case.mechanism for case in analysis.codegen_mechanism}
+
+    assert mechanisms == {
+        "larger_prompt": "larger_prompt_per_request",
+        "more_requests": "more_codegen_requests",
+        "no_increase": "no_codegen_input_increase",
+        "tokenization": "tokenization_or_stochastic_effect",
+    }
+    larger_prompt = next(case for case in analysis.codegen_mechanism if case.case_id == "larger_prompt")
+    assert larger_prompt.b.mean_prompt_chars_per_request == 1500
+
+
 def test_analyze_token_attribution_smoke_fixture_matches_known_totals():
     fixture_dir = Path(__file__).parent / "fixtures"
     results_a = load_results(fixture_dir / "token_smoke_pruning_off_20260606_151528.json")
@@ -198,7 +246,10 @@ def test_analyze_token_attribution_smoke_fixture_matches_known_totals():
 
 
 def test_render_token_attribution_markdown_includes_core_tables():
-    analysis = analyze_token_attribution([result("case_a", 100)], [result("case_a", 120)])
+    analysis = analyze_token_attribution(
+        [result("case_a", 100, mechanism=mechanism_summary(1, 1000, 100))],
+        [result("case_a", 120, mechanism=mechanism_summary(1, 1500, 120))],
+    )
 
     markdown = render_token_attribution_markdown(analysis)
 
@@ -206,5 +257,7 @@ def test_render_token_attribution_markdown_includes_core_tables():
     assert "## Per-Case Token Comparison" in markdown
     assert "## By-Agent Aggregate" in markdown
     assert "## Validity & Cross-Check" in markdown
+    assert "## CodeGen Mechanism" in markdown
+    assert "larger_prompt_per_request" in markdown
     assert "directional only" in markdown
     assert "Delta % Cases" in markdown

@@ -6,10 +6,11 @@ from pathlib import Path
 
 from .case import EvalCase
 from .metrics import (
-    TokenSnapshot,
-    diff_token_snapshots,
-    extract_token_counters,
+    DiagnosticSnapshot,
+    diff_diagnostic_snapshots,
+    extract_diagnostic_snapshot,
     fetch_prometheus_metrics,
+    summarize_mechanism_delta,
     summarize_token_delta,
 )
 from .result import EvalResult
@@ -92,19 +93,19 @@ async def run_batch(
                     if asyncio.iscoroutine(maybe_awaitable):
                         await maybe_awaitable
 
-                token_before = None
+                diagnostic_before = None
                 if capture_run_tokens:
                     try:
-                        token_before = await _capture_token_snapshot(client)
+                        diagnostic_before = await _capture_diagnostic_snapshot(client)
                     except Exception as exc:
-                        token_before = None
+                        diagnostic_before = None
 
                 result = await run_case(case, client, agent=agent, java_params=java_params)
 
                 if capture_run_tokens:
                     try:
-                        token_after = await _capture_token_snapshot(client)
-                        _attach_token_summary(result, token_before, token_after)
+                        diagnostic_after = await _capture_diagnostic_snapshot(client)
+                        _attach_diagnostic_summary(result, diagnostic_before, diagnostic_after)
                     except Exception as exc:
                         result.run_config["token_capture_error"] = str(exc)
 
@@ -229,26 +230,28 @@ def load_results(results_path: Path) -> list[EvalResult]:
     return [EvalResult(**r) for r in data]
 
 
-async def _capture_token_snapshot(client: JavaServiceClient) -> TokenSnapshot:
+async def _capture_diagnostic_snapshot(client: JavaServiceClient) -> DiagnosticSnapshot:
     text = await fetch_prometheus_metrics(client.base_url)
-    return extract_token_counters(text, app_id=client.app_id)
+    return extract_diagnostic_snapshot(text, app_id=client.app_id)
 
 
-def _attach_token_summary(
+def _attach_diagnostic_summary(
     result: EvalResult,
-    before: TokenSnapshot | None,
-    after: TokenSnapshot,
+    before: DiagnosticSnapshot | None,
+    after: DiagnosticSnapshot,
 ) -> None:
     if before is None:
-        result.run_config["token_capture_error"] = "missing before token snapshot"
+        result.run_config["token_capture_error"] = "missing before diagnostic snapshot"
         return
-    if sum(after.values()) < sum(before.values()):
+    if sum(after.tokens.values()) < sum(before.tokens.values()):
         result.run_config["token_capture_error"] = "counter reset/regression"
         return
 
-    summary = summarize_token_delta(diff_token_snapshots(before, after))
+    delta = diff_diagnostic_snapshots(before, after)
+    summary = summarize_token_delta(delta.tokens)
     result.total_tokens = int(summary.get("total", 0))
     result.run_config["token_summary"] = summary
+    result.run_config["mechanism_summary"] = summarize_mechanism_delta(delta)
 
 def is_infra_error(result: EvalResult) -> bool:
     """Return true for transient provider/network errors worth rerunning."""

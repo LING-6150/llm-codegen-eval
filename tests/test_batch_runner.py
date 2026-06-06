@@ -1,7 +1,12 @@
 import pytest
 
 from llm_codegen_eval.core.case import CodeType, Difficulty, EvalCase
-from llm_codegen_eval.core.metrics import TokenMetricKey
+from llm_codegen_eval.core.metrics import (
+    DiagnosticSnapshot,
+    PromptCharsMetricKey,
+    RequestMetricKey,
+    TokenMetricKey,
+)
 from llm_codegen_eval.core.result import EvalResult
 from llm_codegen_eval.core import batch_runner
 
@@ -49,6 +54,29 @@ def make_snapshot(total: int) -> dict:
         token_type="input",
     )
     return {key: float(total)}
+
+
+def make_diagnostic_snapshot(
+    total: int,
+    requests: int = 1,
+    prompt_chars: int = 1000,
+) -> DiagnosticSnapshot:
+    return DiagnosticSnapshot(
+        tokens=make_snapshot(total),
+        requests={
+            RequestMetricKey(
+                agent_name="CodeGenAgent",
+                model_name="deepseek",
+                status="started",
+            ): float(requests)
+        },
+        prompt_chars={
+            PromptCharsMetricKey(
+                agent_name="CodeGenAgent",
+                model_name="deepseek",
+            ): float(prompt_chars)
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -242,7 +270,10 @@ async def test_run_batch_applies_cooldown_before_infra_retry(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_batch_captures_final_attempt_tokens(monkeypatch):
-    snapshots = [make_snapshot(100), make_snapshot(175)]
+    snapshots = [
+        make_diagnostic_snapshot(100, requests=2, prompt_chars=1000),
+        make_diagnostic_snapshot(175, requests=5, prompt_chars=2500),
+    ]
 
     async def fake_capture(client):
         assert client.app_id == "app_1"
@@ -251,7 +282,7 @@ async def test_run_batch_captures_final_attempt_tokens(monkeypatch):
     async def fake_run_case(case, client, agent=True, java_params=None):
         return make_result(None, passed=True)
 
-    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "_capture_diagnostic_snapshot", fake_capture)
     monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
 
     results = await batch_runner.run_batch(
@@ -263,10 +294,15 @@ async def test_run_batch_captures_final_attempt_tokens(monkeypatch):
     assert results[0].total_tokens == 75
     assert results[0].run_config["token_summary"]["total"] == 75
     assert results[0].run_config["token_summary"]["by_agent"]["CodeGenAgent"]["total"] == 75
+    mechanism = results[0].run_config["mechanism_summary"]["by_agent"]["CodeGenAgent"]
+    assert mechanism["requests_started"] == 3
+    assert mechanism["prompt_chars"] == 1500
+    assert mechanism["input_tokens"] == 75
+    assert mechanism["mean_prompt_chars_per_request"] == 500
 
 
 @pytest.mark.asyncio
-async def test_capture_token_snapshot_scopes_by_client_app_id(monkeypatch):
+async def test_capture_diagnostic_snapshot_scopes_by_client_app_id(monkeypatch):
     seen = {}
 
     async def fake_fetch(base_url):
@@ -276,14 +312,14 @@ async def test_capture_token_snapshot_scopes_by_client_app_id(monkeypatch):
     def fake_extract(text, app_id=None):
         seen["text"] = text
         seen["app_id"] = app_id
-        return make_snapshot(100)
+        return make_diagnostic_snapshot(100)
 
     monkeypatch.setattr(batch_runner, "fetch_prometheus_metrics", fake_fetch)
-    monkeypatch.setattr(batch_runner, "extract_token_counters", fake_extract)
+    monkeypatch.setattr(batch_runner, "extract_diagnostic_snapshot", fake_extract)
 
-    snapshot = await batch_runner._capture_token_snapshot(FakeClient())
+    snapshot = await batch_runner._capture_diagnostic_snapshot(FakeClient())
 
-    assert snapshot == make_snapshot(100)
+    assert snapshot == make_diagnostic_snapshot(100)
     assert seen == {
         "base_url": "http://fake-java",
         "text": "metrics",
@@ -294,10 +330,10 @@ async def test_capture_token_snapshot_scopes_by_client_app_id(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_batch_retry_tokens_do_not_pollute_final_attempt(monkeypatch):
     snapshots = [
-        make_snapshot(100),
-        make_snapshot(125),
-        make_snapshot(200),
-        make_snapshot(260),
+        make_diagnostic_snapshot(100, requests=1, prompt_chars=1000),
+        make_diagnostic_snapshot(125, requests=2, prompt_chars=1250),
+        make_diagnostic_snapshot(200, requests=10, prompt_chars=5000),
+        make_diagnostic_snapshot(260, requests=11, prompt_chars=5600),
     ]
     generated = [
         make_result("Workflow error: Remote host terminated the handshake"),
@@ -310,7 +346,7 @@ async def test_run_batch_retry_tokens_do_not_pollute_final_attempt(monkeypatch):
     async def fake_run_case(case, client, agent=True, java_params=None):
         return generated.pop(0)
 
-    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "_capture_diagnostic_snapshot", fake_capture)
     monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
 
     results = await batch_runner.run_batch(
@@ -323,15 +359,16 @@ async def test_run_batch_retry_tokens_do_not_pollute_final_attempt(monkeypatch):
     assert results[0].total_tokens == 60
     assert results[0].run_config["token_summary"]["total"] == 60
     assert results[0].run_config["retry_token_summaries"][0]["total"] == 25
+    assert results[0].run_config["mechanism_summary"]["by_agent"]["CodeGenAgent"]["prompt_chars"] == 600
 
 
 @pytest.mark.asyncio
 async def test_run_batch_captures_final_infra_failure_tokens(monkeypatch):
     snapshots = [
-        make_snapshot(100),
-        make_snapshot(125),
-        make_snapshot(200),
-        make_snapshot(240),
+        make_diagnostic_snapshot(100),
+        make_diagnostic_snapshot(125),
+        make_diagnostic_snapshot(200),
+        make_diagnostic_snapshot(240),
     ]
     generated = [
         make_result("Workflow error: Remote host terminated the handshake"),
@@ -344,7 +381,7 @@ async def test_run_batch_captures_final_infra_failure_tokens(monkeypatch):
     async def fake_run_case(case, client, agent=True, java_params=None):
         return generated.pop(0)
 
-    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "_capture_diagnostic_snapshot", fake_capture)
     monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
 
     results = await batch_runner.run_batch(
@@ -362,7 +399,7 @@ async def test_run_batch_captures_final_infra_failure_tokens(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_batch_marks_token_capture_error_on_counter_reset(monkeypatch):
-    snapshots = [make_snapshot(200), make_snapshot(100)]
+    snapshots = [make_diagnostic_snapshot(200), make_diagnostic_snapshot(100)]
 
     async def fake_capture(client):
         return snapshots.pop(0)
@@ -370,7 +407,7 @@ async def test_run_batch_marks_token_capture_error_on_counter_reset(monkeypatch)
     async def fake_run_case(case, client, agent=True, java_params=None):
         return make_result(None, passed=True)
 
-    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "_capture_diagnostic_snapshot", fake_capture)
     monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
 
     results = await batch_runner.run_batch(
@@ -391,7 +428,7 @@ async def test_run_batch_token_capture_failure_does_not_fail_case(monkeypatch):
     async def fake_run_case(case, client, agent=True, java_params=None):
         return make_result(None, passed=True)
 
-    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "_capture_diagnostic_snapshot", fake_capture)
     monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
 
     results = await batch_runner.run_batch(

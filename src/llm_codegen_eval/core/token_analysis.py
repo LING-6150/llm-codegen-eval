@@ -82,6 +82,7 @@ class IOSplit:
 @dataclass(frozen=True)
 class PairedDirectionSummary:
     n_paired_cases: int
+    n_delta_pct_cases: int
     cases_b_higher: int
     cases_b_lower: int
     cases_equal: int
@@ -279,11 +280,11 @@ def render_token_attribution_markdown(analysis: TokenAttributionAnalysis) -> str
 
     lines.append("## Paired Direction Summary")
     lines.append("")
-    lines.append("| Paired Cases | B Higher | B Lower | Equal | Mean Delta % | Median Delta % | Range |")
-    lines.append("|--------------|----------|---------|-------|--------------|----------------|-------|")
+    lines.append("| Paired Cases | Delta % Cases | B Higher | B Lower | Equal | Mean Delta % | Median Delta % | Range |")
+    lines.append("|--------------|---------------|----------|---------|-------|--------------|----------------|-------|")
     direction = analysis.direction
     lines.append(
-        f"| {direction.n_paired_cases} | {direction.cases_b_higher} | "
+        f"| {direction.n_paired_cases} | {direction.n_delta_pct_cases} | {direction.cases_b_higher} | "
         f"{direction.cases_b_lower} | {direction.cases_equal} | "
         f"{_fmt_pct(direction.mean_delta_pct, signed=True)} | "
         f"{_fmt_pct(direction.median_delta_pct, signed=True)} | "
@@ -585,6 +586,7 @@ def _direction_summary(paired_cases: list[CaseTokenComparison]) -> PairedDirecti
     ]
     return PairedDirectionSummary(
         n_paired_cases=len(paired_cases),
+        n_delta_pct_cases=len(deltas),
         cases_b_higher=sum(1 for case in paired_cases if (case.delta_total or 0) > 0),
         cases_b_lower=sum(1 for case in paired_cases if (case.delta_total or 0) < 0),
         cases_equal=sum(1 for case in paired_cases if (case.delta_total or 0) == 0),
@@ -607,6 +609,9 @@ def _caveats(
         caveats.append(
             f"Only {len(paired_case_ids)} paired cases; directional only, no significance claimed."
         )
+    if len(paired_case_ids) != 0:
+        caveats.append("Delta percentage summaries skip paired cases where arm A has a zero-token baseline.")
+        caveats.append("Per-agent input percentages can be high-variance at small baselines; use aggregate input split as the stable view.")
     if validity_a.config_token_total is None or validity_b.config_token_total is None:
         caveats.append("Config-level cross-check unavailable for at least one arm.")
     for validity in (validity_a, validity_b):

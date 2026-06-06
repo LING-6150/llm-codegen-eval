@@ -1,0 +1,116 @@
+[
+  {
+    "case_id": "multi_019",
+    "passed": true,
+    "score": 100,
+    "required_passed": 4,
+    "required_total": 4,
+    "required_failed": [],
+    "optional_passed": 2,
+    "optional_total": 2,
+    "forbidden_found": [],
+    "generation_duration_ms": 56378,
+    "review_score": 95,
+    "review_passed": true,
+    "total_tokens": 16649,
+    "generated_code": "",
+    "error": null,
+    "run_at": "2026-06-06T15:14:50.702706",
+    "run_config": {
+      "agent": true,
+      "java_params": {
+        "contextPruning": true
+      },
+      "token_summary": {
+        "input": 12122,
+        "output": 4527,
+        "total": 16649,
+        "by_agent": {
+          "CodeGenAgent": {
+            "input": 9564,
+            "output": 4219,
+            "total": 13783
+          },
+          "ReviewAgent": {
+            "input": 2558,
+            "output": 308,
+            "total": 2866
+          }
+        },
+        "by_model": {
+          "deepseek-v4-flash": {
+            "input": 9564,
+            "output": 4219,
+            "total": 13783
+          },
+          "glm-4-flash": {
+            "input": 2558,
+            "output": 308,
+            "total": 2866
+          }
+        }
+      },
+      "run_index": 1,
+      "runs_per_case": 1,
+      "infra_retries": 1,
+      "infra_retries_used": 0
+    }
+  },
+  {
+    "case_id": "multi_020",
+    "passed": true,
+    "score": 100,
+    "required_passed": 4,
+    "required_total": 4,
+    "required_failed": [],
+    "optional_passed": 2,
+    "optional_total": 2,
+    "forbidden_found": [],
+    "generation_duration_ms": 27750,
+    "review_score": 95,
+    "review_passed": true,
+    "total_tokens": 17803,
+    "generated_code": "",
+    "error": null,
+    "run_at": "2026-06-06T15:15:28.565721",
+    "run_config": {
+      "agent": true,
+      "java_params": {
+        "contextPruning": true
+      },
+      "token_summary": {
+        "input": 16276,
+        "output": 1527,
+        "total": 17803,
+        "by_agent": {
+          "CodeGenAgent": {
+            "input": 14060,
+            "output": 1379,
+            "total": 15439
+          },
+          "ReviewAgent": {
+            "input": 2216,
+            "output": 148,
+            "total": 2364
+          }
+        },
+        "by_model": {
+          "deepseek-v4-flash": {
+            "input": 14060,
+            "output": 1379,
+            "total": 15439
+          },
+          "glm-4-flash": {
+            "input": 2216,
+            "output": 148,
+            "total": 2364
+          }
+        }
+      },
+      "run_index": 1,
+      "runs_per_case": 1,
+      "infra_retries": 1,
+      "infra_retries_used": 0
+    }
+  }
+]

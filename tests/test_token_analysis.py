@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import pytest
 
+from llm_codegen_eval.core.batch_runner import load_results
 from llm_codegen_eval.core.result import EvalResult
 from llm_codegen_eval.core.token_analysis import (
     analyze_token_attribution,
@@ -138,6 +141,7 @@ def test_analyze_token_attribution_direction_summary_and_zero_denominator():
     analysis = analyze_token_attribution(results_a, results_b)
 
     assert analysis.direction.n_paired_cases == 3
+    assert analysis.direction.n_delta_pct_cases == 2
     assert analysis.direction.cases_b_higher == 2
     assert analysis.direction.cases_b_lower == 1
     assert analysis.direction.mean_delta_pct == pytest.approx(0)
@@ -170,50 +174,9 @@ def test_analyze_token_attribution_cross_check_uses_accounted_tokens_with_retrie
 
 
 def test_analyze_token_attribution_smoke_fixture_matches_known_totals():
-    results_a = [
-        result(
-            "multi_019",
-            8516,
-            input_tokens=3608,
-            output_tokens=4908,
-            by_agent={
-                "CodeGenAgent": {"input": 738, "output": 4908, "total": 5646},
-                "ReviewAgent": {"input": 2870, "output": 0, "total": 2870},
-            },
-        ),
-        result(
-            "multi_020",
-            12260,
-            input_tokens=8998,
-            output_tokens=3262,
-            by_agent={
-                "CodeGenAgent": {"input": 6037, "output": 3262, "total": 9299},
-                "ReviewAgent": {"input": 2961, "output": 0, "total": 2961},
-            },
-        ),
-    ]
-    results_b = [
-        result(
-            "multi_019",
-            16649,
-            input_tokens=12430,
-            output_tokens=4219,
-            by_agent={
-                "CodeGenAgent": {"input": 9564, "output": 4219, "total": 13783},
-                "ReviewAgent": {"input": 2866, "output": 0, "total": 2866},
-            },
-        ),
-        result(
-            "multi_020",
-            17803,
-            input_tokens=16424,
-            output_tokens=1379,
-            by_agent={
-                "CodeGenAgent": {"input": 14060, "output": 1379, "total": 15439},
-                "ReviewAgent": {"input": 2364, "output": 0, "total": 2364},
-            },
-        ),
-    ]
+    fixture_dir = Path(__file__).parent / "fixtures"
+    results_a = load_results(fixture_dir / "token_smoke_pruning_off_20260606_151528.json")
+    results_b = load_results(fixture_dir / "token_smoke_pruning_on_20260606_151528.json")
 
     analysis = analyze_token_attribution(
         results_a,
@@ -229,6 +192,9 @@ def test_analyze_token_attribution_smoke_fixture_matches_known_totals():
     assert analysis.validity_b.cross_check_match is True
     for case in analysis.per_case:
         assert case.delta_by_agent["CodeGenAgent"].input > 0
+    multi_019 = next(case for case in analysis.per_case if case.case_id == "multi_019")
+    assert multi_019.a.input == 3286
+    assert multi_019.b.input == 12122
 
 
 def test_render_token_attribution_markdown_includes_core_tables():
@@ -241,3 +207,4 @@ def test_render_token_attribution_markdown_includes_core_tables():
     assert "## By-Agent Aggregate" in markdown
     assert "## Validity & Cross-Check" in markdown
     assert "directional only" in markdown
+    assert "Delta % Cases" in markdown

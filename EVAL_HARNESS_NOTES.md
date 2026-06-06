@@ -798,3 +798,49 @@ Next step:
 - Run a larger `--capture-run-tokens` sharded experiment and feed the raw files into `scripts/analyze_token_attribution.py`.
 - Use the analyzer to confirm whether the CodeGenAgent input increase persists at the case-mean level.
 - If it persists, add Java-side instrumentation for CodeGenAgent invocation count and per-call context size.
+
+## Day 10B.1: Token Analyzer Review Polish
+
+Date: 2026-06-06
+
+Issue:
+
+- #21 `Measure per-run token attribution for context pruning experiments`
+
+Review result:
+
+- Claude reviewed the Day 10B implementation as a correctness review.
+- No blockers were found.
+- The implementation was kept.
+
+Polish changes:
+
+- Added committed smoke fixtures under `tests/fixtures/`.
+- Updated the golden test to load fixture JSON through `load_results()` instead of using synthetic in-memory values.
+- Added `Delta % Cases` to the paired direction summary so readers can see when zero-baseline cases were skipped for percentage statistics.
+- Added report caveats for:
+  - percentage summaries skipping arm-A zero-token baselines
+  - per-agent input percentages being high-variance at small baselines
+
+Scope:
+
+- No Java changes.
+- No live runner changes.
+- No reporter integration.
+- No statistical significance claims.
+
+Validation:
+
+```bash
+uv run pytest tests/test_token_analysis.py -q
+uv run python scripts/analyze_token_attribution.py \
+  --raw-a reports/raw_ab_pruning_off_20260606_151528.json \
+  --raw-b reports/raw_ab_pruning_on_20260606_151528.json \
+  --config-token-total-a 20776 \
+  --config-token-total-b 34452 \
+  --output /private/tmp/token_attribution_smoke_polish.md
+```
+
+Next step:
+
+- Day 10C: run the sharded 10-case pass@3 experiment with `--capture-run-tokens`.

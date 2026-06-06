@@ -715,3 +715,86 @@ Observation:
 
 - On this two-case smoke, pruning_on increased input tokens, driven by `CodeGenAgent`.
 - This confirms Day 10A attribution works and gives the next investigation a concrete per-run/per-agent signal.
+
+## Day 10B: Offline Token Attribution Analyzer
+
+Date: 2026-06-06
+
+Issue:
+
+- #21 `Measure per-run token attribution for context pruning experiments`
+
+Motivation:
+
+- Day 10A writes per-run token summaries into raw JSON, but the raw data still needs a repeatable offline analysis path.
+- The analyzer must avoid pseudoreplication: repeated runs of the same case are not independent statistical samples.
+- The goal is to quantify and localize token movement, not to claim statistical significance from tiny-N smoke runs.
+
+Implementation:
+
+- Added `src/llm_codegen_eval/core/token_analysis.py`.
+- Added `scripts/analyze_token_attribution.py`.
+- Kept `reporter.py` and the live A/B run path unchanged.
+
+Analysis contract:
+
+- Unit of analysis: per-case mean of valid runs.
+- Paired comparison: only cases with at least one valid token run in both arms.
+- Aggregates: equal-weight mean across paired cases, not pooled runs.
+- No p-values, confidence intervals, or significance claims.
+- Percent delta is undefined when the A denominator is 0.
+
+Valid token run predicate:
+
+- Exclude infra/provider errors.
+- Exclude other generation errors.
+- Exclude runs with `run_config["token_capture_error"]`.
+- Exclude runs missing `run_config["token_summary"]`.
+- Analyze only final scored attempts; retried-away attempts are counted only in accounted-token cross-checks.
+
+Report output:
+
+- Per-case token comparison.
+- By-agent aggregate delta.
+- Input/output split.
+- Paired direction summary.
+- Validity and cross-check table.
+- Optional unpaired/excluded run tables.
+
+Cross-check semantics:
+
+- `valid_token_sum`: final scored runs that are valid for paired comparison.
+- `accounted_token_sum`: all final attempt tokens plus retried-away attempt tokens.
+- Config-level Prometheus totals, when supplied, are checked against `accounted_token_sum`.
+- Offline raw-only analysis can still run without config-level totals; the report emits a caveat.
+
+Smoke verification:
+
+```bash
+uv run python scripts/analyze_token_attribution.py \
+  --raw-a reports/raw_ab_pruning_off_20260606_151528.json \
+  --raw-b reports/raw_ab_pruning_on_20260606_151528.json \
+  --config-token-total-a 20776 \
+  --config-token-total-b 34452 \
+  --output /private/tmp/token_attribution_smoke.md
+```
+
+Smoke result:
+
+- `pruning_off` accounted token sum: `20,776`, cross-check matched.
+- `pruning_on` accounted token sum: `34,452`, cross-check matched.
+- `multi_019` and `multi_020` both showed higher `CodeGenAgent` input under pruning_on.
+- This remains directional only because it is a 2-case smoke.
+
+Validation:
+
+```bash
+uv run pytest
+python3 -m compileall src tests scripts
+```
+
+Next step:
+
+- Run a larger `--capture-run-tokens` sharded experiment and feed the raw files into `scripts/analyze_token_attribution.py`.
+- Use the analyzer to confirm whether the CodeGenAgent input increase persists at the case-mean level.
+- If it persists, add Java-side instrumentation for CodeGenAgent invocation count and per-call context size.

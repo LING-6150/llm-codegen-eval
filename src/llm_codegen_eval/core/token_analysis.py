@@ -230,7 +230,13 @@ def analyze_token_attribution(
         validity_a=validity_a,
         validity_b=validity_b,
         excluded_runs=excluded_runs,
-        caveats=_caveats(paired_case_ids, validity_a, validity_b, unpaired_cases),
+        caveats=_caveats(
+            paired_case_ids,
+            validity_a,
+            validity_b,
+            unpaired_cases,
+            codegen_mechanism,
+        ),
     )
     return analysis
 
@@ -541,6 +547,8 @@ def _classify_codegen_mechanism(
 ) -> str:
     if means_a is None or means_b is None:
         return "unpaired"
+    if means_a.prompt_chars <= 0 or means_b.prompt_chars <= 0:
+        return "diagnostics_unavailable"
     if means_b.requests_started > means_a.requests_started:
         return "more_codegen_requests"
     if (
@@ -725,6 +733,7 @@ def _caveats(
     validity_a: ArmValidity,
     validity_b: ArmValidity,
     unpaired_cases: list[UnpairedCase],
+    codegen_mechanism: list[CaseMechanismComparison],
 ) -> list[str]:
     caveats = []
     if len(paired_case_ids) < 10:
@@ -749,6 +758,15 @@ def _caveats(
         )
     if unpaired_cases:
         caveats.append(f"{len(unpaired_cases)} cases are unpaired and excluded from paired deltas.")
+    unavailable_count = sum(
+        1 for case in codegen_mechanism if case.mechanism == "diagnostics_unavailable"
+    )
+    if unavailable_count:
+        caveats.append(
+            "CodeGen mechanism requires Java context.pruning.diagnostics.enabled=true; "
+            f"{unavailable_count} case(s) lack prompt-char data and are marked "
+            "diagnostics_unavailable."
+        )
     return caveats
 
 

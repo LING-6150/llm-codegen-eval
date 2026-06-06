@@ -221,6 +221,29 @@ def test_analyze_token_attribution_codegen_mechanism_classifies_cases():
     assert larger_prompt.b.mean_prompt_chars_per_request == 1500
 
 
+def test_analyze_token_attribution_marks_missing_prompt_chars_unavailable():
+    results_a = [
+        result("diagnostics_off", 100, mechanism=mechanism_summary(1, 0, 100)),
+        result("one_arm_missing", 100, mechanism=mechanism_summary(1, 1000, 100)),
+    ]
+    results_b = [
+        result("diagnostics_off", 150, mechanism=mechanism_summary(1, 0, 150)),
+        result("one_arm_missing", 150, mechanism=mechanism_summary(1, 0, 150)),
+    ]
+
+    analysis = analyze_token_attribution(results_a, results_b)
+    mechanisms = {case.case_id: case.mechanism for case in analysis.codegen_mechanism}
+
+    assert mechanisms["diagnostics_off"] == "diagnostics_unavailable"
+    assert mechanisms["one_arm_missing"] == "diagnostics_unavailable"
+    assert mechanisms["diagnostics_off"] != "tokenization_or_stochastic_effect"
+    assert any(
+        "context.pruning.diagnostics.enabled=true" in caveat
+        and "2 case(s)" in caveat
+        for caveat in analysis.caveats
+    )
+
+
 def test_analyze_token_attribution_smoke_fixture_matches_known_totals():
     fixture_dir = Path(__file__).parent / "fixtures"
     results_a = load_results(fixture_dir / "token_smoke_pruning_off_20260606_151528.json")

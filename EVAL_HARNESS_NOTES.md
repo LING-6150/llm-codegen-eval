@@ -696,3 +696,22 @@ Next step:
 
 - Run one small shard with `--capture-run-tokens`.
 - Verify raw JSON contains non-zero `total_tokens` and per-agent `token_summary`.
+
+Smoke validation:
+
+- Command: `multi_019,multi_020`, `runs_per_case=1`, `--capture-run-tokens`.
+- Report: `reports/ab_pruning_off_vs_pruning_on_20260606_151528.md`
+- Raw A: `reports/raw_ab_pruning_off_20260606_151528.json`
+- Raw B: `reports/raw_ab_pruning_on_20260606_151528.json`
+- Result:
+  - `pruning_off` per-run token sum: `20,776`
+  - `pruning_on` per-run token sum: `34,452`
+  - config-level token deltas matched the per-run sums exactly for this smoke
+  - all 4 raw results had non-zero `total_tokens`
+  - all 4 raw results had `run_config["token_summary"]["by_agent"]`
+  - no `token_capture_error`
+
+Observation:
+
+- On this two-case smoke, pruning_on increased input tokens, driven by `CodeGenAgent`.
+- This confirms Day 10A attribution works and gives the next investigation a concrete per-run/per-agent signal.

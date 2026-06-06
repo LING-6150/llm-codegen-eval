@@ -5,6 +5,13 @@ import json
 from pathlib import Path
 
 from .case import EvalCase
+from .metrics import (
+    TokenSnapshot,
+    diff_token_snapshots,
+    extract_token_counters,
+    fetch_prometheus_metrics,
+    summarize_token_delta,
+)
 from .result import EvalResult
 from .runner import run_case
 from ..clients.java_client import JavaServiceClient
@@ -31,6 +38,7 @@ async def run_batch(
     max_consecutive_infra_failures: int = 3,
     cooldown_seconds: float = 0,
     health_check: bool = True,
+    capture_run_tokens: bool = False,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -46,6 +54,8 @@ async def run_batch(
         raise ValueError("max_consecutive_infra_failures must be >= 0")
     if cooldown_seconds < 0:
         raise ValueError("cooldown_seconds must be >= 0")
+    if capture_run_tokens and concurrency != 1:
+        raise ValueError("capture_run_tokens requires concurrency=1")
 
     if health_check and not await client.health():
         raise BatchRunAborted(
@@ -75,15 +85,38 @@ async def run_batch(
                 on_progress(job_idx, len(jobs), case.case_id, "start", run_idx=run_idx + 1)
 
             result = None
+            retry_token_summaries = []
             for attempt_idx in range(infra_retries + 1):
                 if before_run:
                     maybe_awaitable = before_run(case, run_idx + 1, runs_per_case)
                     if asyncio.iscoroutine(maybe_awaitable):
                         await maybe_awaitable
 
+                token_before = None
+                if capture_run_tokens:
+                    try:
+                        token_before = await _capture_token_snapshot(client)
+                    except Exception as exc:
+                        token_before = None
+
                 result = await run_case(case, client, agent=agent, java_params=java_params)
+
+                if capture_run_tokens:
+                    try:
+                        token_after = await _capture_token_snapshot(client)
+                        _attach_token_summary(result, token_before, token_after)
+                    except Exception as exc:
+                        result.run_config["token_capture_error"] = str(exc)
+
                 if not is_infra_error(result) or attempt_idx >= infra_retries:
                     break
+
+                if "token_summary" in result.run_config:
+                    retry_token_summaries.append(result.run_config["token_summary"])
+                elif "token_capture_error" in result.run_config:
+                    retry_token_summaries.append({
+                        "error": result.run_config["token_capture_error"],
+                    })
 
                 if health_check and not await client.health():
                     raise BatchRunAborted(
@@ -106,6 +139,8 @@ async def run_batch(
                     await asyncio.sleep(cooldown_seconds)
 
             assert result is not None
+            if retry_token_summaries:
+                result.run_config["retry_token_summaries"] = retry_token_summaries
             result.run_config.update({
                 "run_index": run_idx + 1,
                 "runs_per_case": runs_per_case,
@@ -192,6 +227,28 @@ def load_results(results_path: Path) -> list[EvalResult]:
     with open(results_path, encoding="utf-8") as f:
         data = json.load(f)
     return [EvalResult(**r) for r in data]
+
+
+async def _capture_token_snapshot(client: JavaServiceClient) -> TokenSnapshot:
+    text = await fetch_prometheus_metrics(client.base_url)
+    return extract_token_counters(text, app_id=client.app_id)
+
+
+def _attach_token_summary(
+    result: EvalResult,
+    before: TokenSnapshot | None,
+    after: TokenSnapshot,
+) -> None:
+    if before is None:
+        result.run_config["token_capture_error"] = "missing before token snapshot"
+        return
+    if sum(after.values()) < sum(before.values()):
+        result.run_config["token_capture_error"] = "counter reset/regression"
+        return
+
+    summary = summarize_token_delta(diff_token_snapshots(before, after))
+    result.total_tokens = int(summary.get("total", 0))
+    result.run_config["token_summary"] = summary
 
 def is_infra_error(result: EvalResult) -> bool:
     """Return true for transient provider/network errors worth rerunning."""

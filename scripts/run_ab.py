@@ -72,6 +72,7 @@ async def run_config(
     max_consecutive_infra_failures: int,
     cooldown_seconds: float,
     health_check: bool,
+    capture_run_tokens: bool,
     capture_token_metrics: bool,
 ) -> tuple[list[EvalResult], TokenSummary | None]:
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
@@ -118,6 +119,7 @@ async def run_config(
         max_consecutive_infra_failures=max_consecutive_infra_failures,
         cooldown_seconds=cooldown_seconds,
         health_check=health_check,
+        capture_run_tokens=capture_run_tokens,
     )
     token_summary = await capture_token_delta(client, config.name, token_before)
     return results, token_summary
@@ -174,6 +176,7 @@ async def main(
     max_consecutive_infra_failures: int = 3,
     cooldown_seconds: float = 0,
     health_check: bool = True,
+    capture_run_tokens: bool = False,
     capture_token_metrics: bool = True,
 ):
     if runs_per_case < 1:
@@ -231,6 +234,7 @@ async def main(
             max_consecutive_infra_failures,
             cooldown_seconds,
             health_check,
+            capture_run_tokens,
             capture_token_metrics,
         )
         results_b, token_summary_b = await run_config(
@@ -248,6 +252,7 @@ async def main(
             max_consecutive_infra_failures,
             cooldown_seconds,
             health_check,
+            capture_run_tokens,
             capture_token_metrics,
         )
     except PreflightError as e:
@@ -283,6 +288,12 @@ async def main(
             "Max consecutive infra failures": str(max_consecutive_infra_failures),
             "Cooldown seconds": str(cooldown_seconds),
             "Health check": str(health_check),
+            "Run token attribution": str(capture_run_tokens),
+            "Run token attribution mode": (
+                "Prometheus per-attempt counter delta; valid only for sequential runs "
+                "with no concurrent traffic on the same appId"
+                if capture_run_tokens else "disabled"
+            ),
             "Batch aborted": aborted_reason or "False",
             "Run validity": (
                 "invalid for model-quality comparison"
@@ -326,6 +337,10 @@ if __name__ == "__main__":
                         default=True, help="Abort when Java actuator health is not UP (default)")
     parser.add_argument("--no-health-check", dest="health_check", action="store_false",
                         help="Disable Java actuator health gate")
+    parser.add_argument("--capture-run-tokens", dest="capture_run_tokens", action="store_true",
+                        default=False, help="Capture per-run Prometheus token deltas")
+    parser.add_argument("--no-capture-run-tokens", dest="capture_run_tokens", action="store_false",
+                        help="Disable per-run token attribution (default)")
     parser.add_argument("--app-id", help="Java service appId to use")
     parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
                         default=True, help="Clear chat_history before each case run (default)")
@@ -360,5 +375,6 @@ if __name__ == "__main__":
         max_consecutive_infra_failures=args.max_consecutive_infra_failures,
         cooldown_seconds=args.cooldown_seconds,
         health_check=args.health_check,
+        capture_run_tokens=args.capture_run_tokens,
         capture_token_metrics=args.capture_token_metrics,
     ))

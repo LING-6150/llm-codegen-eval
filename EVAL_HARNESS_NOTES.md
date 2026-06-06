@@ -607,3 +607,92 @@ Next technical follow-up:
 
 - Add per-run/per-agent token attribution before rerunning the token-reduction hypothesis.
 - Inspect prompt/context payload and `CodeGenAgent` invocation count before and after pruning.
+
+## Day 10A: Eval-Only Per-Run Token Attribution
+
+Date: 2026-06-06
+
+Issue:
+
+- #21 `Measure per-run token attribution for context pruning experiments`
+
+Motivation:
+
+- Issue #13 produced a valid sharded pass@3 result for quality, but token effect was inconclusive.
+- Raw `EvalResult.total_tokens` was 0 for all runs because token measurement was only captured as config-level Prometheus counter deltas.
+- Per-run token attribution is required before making any token reduction claim or debugging CodeGenAgent token movement.
+
+Decision:
+
+- Implement eval-only per-run attribution first.
+- Do not change Java service, provider, model routing, prompts, pruning rules, or Prometheus labels.
+- Attribute tokens by bracketing each sequential eval attempt with scoped Prometheus snapshots for the same `appId`.
+
+Semantics:
+
+- `--capture-run-tokens` is opt-in.
+- Requires `concurrency=1`; concurrent runs are rejected because Prometheus counter deltas would overlap.
+- Snapshot timing:
+  - run `before_run` first, including chat_history cleanup
+  - capture Prometheus `before` snapshot
+  - execute one `run_case` attempt
+  - capture Prometheus `after` snapshot
+- Retry semantics:
+  - every attempt gets its own before/after window
+  - the final returned/scored attempt writes `EvalResult.total_tokens`
+  - attempts retried away are stored in `run_config["retry_token_summaries"]`
+  - if all retries are exhausted and the final result is still an infra failure, that final failed attempt still writes its own token summary
+- Counter reset guard:
+  - if scoped counter total decreases between before and after, set `run_config["token_capture_error"] = "counter reset/regression"`
+  - keep `total_tokens = 0`
+- Capture failures:
+  - do not fail the case
+  - set `run_config["token_capture_error"]`
+
+Raw result fields:
+
+- `total_tokens`
+- `run_config["token_summary"]`
+  - `input`
+  - `output`
+  - `total`
+  - `by_agent`
+  - `by_model`
+- optional `run_config["retry_token_summaries"]`
+- optional `run_config["token_capture_error"]`
+
+CLI:
+
+- `scripts/run_ab.py`
+- `scripts/run_benchmark.py`
+
+New option:
+
+```bash
+--capture-run-tokens
+```
+
+Report metadata records:
+
+- `Run token attribution`
+- `Run token attribution mode`
+
+Validity envelope:
+
+- sequential runs only
+- one dedicated `appId`
+- no concurrent external traffic for that `appId`
+- Prometheus counters must not reset during a run window
+
+Validation:
+
+```bash
+uv run pytest
+PYTHONPYCACHEPREFIX=/private/tmp/eval-pycache python3 -m compileall src tests scripts
+git diff --check
+```
+
+Next step:
+
+- Run one small shard with `--capture-run-tokens`.
+- Verify raw JSON contains non-zero `total_tokens` and per-agent `token_summary`.

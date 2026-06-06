@@ -72,6 +72,7 @@ async def main(
     max_consecutive_infra_failures: int = 3,
     cooldown_seconds: float = 0,
     health_check: bool = True,
+    capture_run_tokens: bool = False,
 ):
     config_metadata = {}
     java_params = {}
@@ -172,6 +173,7 @@ async def main(
             max_consecutive_infra_failures=max_consecutive_infra_failures,
             cooldown_seconds=cooldown_seconds,
             health_check=health_check,
+            capture_run_tokens=capture_run_tokens,
         )
     except BatchRunAborted as e:
         results = e.results
@@ -210,6 +212,12 @@ async def main(
             "Max consecutive infra failures": str(max_consecutive_infra_failures),
             "Cooldown seconds": str(cooldown_seconds),
             "Health check": str(health_check),
+            "Run token attribution": str(capture_run_tokens),
+            "Run token attribution mode": (
+                "Prometheus per-attempt counter delta; valid only for sequential runs "
+                "with no concurrent traffic on the same appId"
+                if capture_run_tokens else "disabled"
+            ),
             "Batch aborted": aborted_reason or "False",
             "Run validity": (
                 "invalid for model-quality comparison"
@@ -266,6 +274,10 @@ if __name__ == "__main__":
                         default=True, help="Abort when Java actuator health is not UP (default)")
     parser.add_argument("--no-health-check", dest="health_check", action="store_false",
                         help="Disable Java actuator health gate")
+    parser.add_argument("--capture-run-tokens", dest="capture_run_tokens", action="store_true",
+                        default=False, help="Capture per-run Prometheus token deltas")
+    parser.add_argument("--no-capture-run-tokens", dest="capture_run_tokens", action="store_false",
+                        help="Disable per-run token attribution (default)")
     parser.add_argument("--agent", dest="agent", action="store_true",
                        default=True, help="Use Java Multi-Agent workflow (default)")
     parser.add_argument("--no-agent", dest="agent", action="store_false",
@@ -303,4 +315,5 @@ if __name__ == "__main__":
         max_consecutive_infra_failures=args.max_consecutive_infra_failures,
         cooldown_seconds=args.cooldown_seconds,
         health_check=args.health_check,
+        capture_run_tokens=args.capture_run_tokens,
     ))

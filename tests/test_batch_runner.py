@@ -1,6 +1,7 @@
 import pytest
 
 from llm_codegen_eval.core.case import CodeType, Difficulty, EvalCase
+from llm_codegen_eval.core.metrics import TokenMetricKey
 from llm_codegen_eval.core.result import EvalResult
 from llm_codegen_eval.core import batch_runner
 
@@ -8,6 +9,8 @@ from llm_codegen_eval.core import batch_runner
 class FakeClient:
     def __init__(self, healthy: bool = True):
         self.healthy = healthy
+        self.base_url = "http://fake-java"
+        self.app_id = "app_1"
 
     async def login(self):
         return None
@@ -37,6 +40,15 @@ def make_result(error: str | None, passed: bool = False) -> EvalResult:
         optional_total=0,
         error=error,
     )
+
+
+def make_snapshot(total: int) -> dict:
+    key = TokenMetricKey(
+        agent_name="CodeGenAgent",
+        model_name="deepseek",
+        token_type="input",
+    )
+    return {key: float(total)}
 
 
 @pytest.mark.asyncio
@@ -226,3 +238,179 @@ async def test_run_batch_applies_cooldown_before_infra_retry(monkeypatch):
     )
 
     assert sleeps == [3]
+
+
+@pytest.mark.asyncio
+async def test_run_batch_captures_final_attempt_tokens(monkeypatch):
+    snapshots = [make_snapshot(100), make_snapshot(175)]
+
+    async def fake_capture(client):
+        assert client.app_id == "app_1"
+        return snapshots.pop(0)
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return make_result(None, passed=True)
+
+    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    results = await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        capture_run_tokens=True,
+    )
+
+    assert results[0].total_tokens == 75
+    assert results[0].run_config["token_summary"]["total"] == 75
+    assert results[0].run_config["token_summary"]["by_agent"]["CodeGenAgent"]["total"] == 75
+
+
+@pytest.mark.asyncio
+async def test_capture_token_snapshot_scopes_by_client_app_id(monkeypatch):
+    seen = {}
+
+    async def fake_fetch(base_url):
+        seen["base_url"] = base_url
+        return "metrics"
+
+    def fake_extract(text, app_id=None):
+        seen["text"] = text
+        seen["app_id"] = app_id
+        return make_snapshot(100)
+
+    monkeypatch.setattr(batch_runner, "fetch_prometheus_metrics", fake_fetch)
+    monkeypatch.setattr(batch_runner, "extract_token_counters", fake_extract)
+
+    snapshot = await batch_runner._capture_token_snapshot(FakeClient())
+
+    assert snapshot == make_snapshot(100)
+    assert seen == {
+        "base_url": "http://fake-java",
+        "text": "metrics",
+        "app_id": "app_1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_batch_retry_tokens_do_not_pollute_final_attempt(monkeypatch):
+    snapshots = [
+        make_snapshot(100),
+        make_snapshot(125),
+        make_snapshot(200),
+        make_snapshot(260),
+    ]
+    generated = [
+        make_result("Workflow error: Remote host terminated the handshake"),
+        make_result(None, passed=True),
+    ]
+
+    async def fake_capture(client):
+        return snapshots.pop(0)
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return generated.pop(0)
+
+    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    results = await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        infra_retries=1,
+        capture_run_tokens=True,
+    )
+
+    assert results[0].total_tokens == 60
+    assert results[0].run_config["token_summary"]["total"] == 60
+    assert results[0].run_config["retry_token_summaries"][0]["total"] == 25
+
+
+@pytest.mark.asyncio
+async def test_run_batch_captures_final_infra_failure_tokens(monkeypatch):
+    snapshots = [
+        make_snapshot(100),
+        make_snapshot(125),
+        make_snapshot(200),
+        make_snapshot(240),
+    ]
+    generated = [
+        make_result("Workflow error: Remote host terminated the handshake"),
+        make_result("Workflow error: Remote host terminated the handshake"),
+    ]
+
+    async def fake_capture(client):
+        return snapshots.pop(0)
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return generated.pop(0)
+
+    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    results = await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        infra_retries=1,
+        capture_run_tokens=True,
+    )
+
+    assert results[0].passed is False
+    assert results[0].total_tokens == 40
+    assert results[0].run_config["token_summary"]["total"] == 40
+    assert results[0].run_config["retry_token_summaries"][0]["total"] == 25
+
+
+@pytest.mark.asyncio
+async def test_run_batch_marks_token_capture_error_on_counter_reset(monkeypatch):
+    snapshots = [make_snapshot(200), make_snapshot(100)]
+
+    async def fake_capture(client):
+        return snapshots.pop(0)
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return make_result(None, passed=True)
+
+    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    results = await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        capture_run_tokens=True,
+    )
+
+    assert results[0].total_tokens == 0
+    assert results[0].run_config["token_capture_error"] == "counter reset/regression"
+
+
+@pytest.mark.asyncio
+async def test_run_batch_token_capture_failure_does_not_fail_case(monkeypatch):
+    async def fake_capture(client):
+        raise RuntimeError("prometheus unavailable")
+
+    async def fake_run_case(case, client, agent=True, java_params=None):
+        return make_result(None, passed=True)
+
+    monkeypatch.setattr(batch_runner, "_capture_token_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    results = await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        capture_run_tokens=True,
+    )
+
+    assert results[0].passed is True
+    assert results[0].total_tokens == 0
+    assert results[0].run_config["token_capture_error"] == "prometheus unavailable"
+
+
+@pytest.mark.asyncio
+async def test_run_batch_rejects_run_token_capture_with_concurrency():
+    with pytest.raises(ValueError, match="capture_run_tokens requires concurrency=1"):
+        await batch_runner.run_batch(
+            [make_case()],
+            FakeClient(),
+            concurrency=2,
+            capture_run_tokens=True,
+        )

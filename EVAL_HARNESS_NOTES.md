@@ -844,3 +844,112 @@ uv run python scripts/analyze_token_attribution.py \
 Next step:
 
 - Day 10C: run the sharded 10-case pass@3 experiment with `--capture-run-tokens`.
+
+## Day 10C: Sharded pass@3 With Per-Run Token Attribution
+
+Date: 2026-06-06
+
+Issue:
+
+- #21 `Measure per-run token attribution for context pruning experiments`
+
+Protocol:
+
+- 10 multi-file cases: `multi_011` through `multi_020`.
+- 3 runs per case.
+- A/B configs:
+  - A: `configs/pruning_off.yaml`
+  - B: `configs/pruning_on.yaml`
+- 5 sequential shards:
+  - `multi_011,multi_012`
+  - `multi_013,multi_014`
+  - `multi_015,multi_016`
+  - `multi_017,multi_018`
+  - `multi_019,multi_020`
+- Enabled `--capture-run-tokens`.
+- Kept sequential execution to preserve Prometheus per-run token attribution validity.
+
+Included shards:
+
+- `20260606_170047`
+- `20260606_172045`
+- `20260606_173701`
+- `20260606_201650`
+- `20260606_184745`
+
+Excluded diagnostic shards:
+
+- `20260606_181533`: unresolved infra/provider error in `pruning_on`.
+- `20260606_194618`: DeepSeek `Insufficient Balance` / empty-response cascade after quota exhaustion.
+
+Merged artifacts:
+
+- A raw: `reports/raw_ab_pruning_off_sharded_tokens_20260606_201650.json`
+- B raw: `reports/raw_ab_pruning_on_sharded_tokens_20260606_201650.json`
+- A/B report: `reports/ab_pruning_off_vs_pruning_on_sharded_tokens_20260606_201650.md`
+- Token attribution report: `reports/token_attribution_pruning_off_vs_pruning_on_sharded_20260606_201650.md`
+
+Validity:
+
+- 5/5 included shards completed.
+- Batch aborted: `False` for all included shards.
+- Final infra/provider errors: `0` vs `0`.
+- Other generation errors: `0` vs `0`.
+- Suspicious empty generations: `0` vs `0`.
+- Valid token runs: `30/30` vs `30/30`.
+- Paired cases: `10/10`.
+- Token cross-check:
+  - `pruning_off`: valid/accounted/config total all `1,365,825`, match.
+  - `pruning_on`: valid/accounted/config total all `1,533,768`, match.
+
+Quality result:
+
+- pass@3: `90.0% -> 90.0%` (`+0.0 pp`)
+- pass@1: `90.0% -> 90.0%` (`+0.0 pp`)
+- run-level pass rate: `90.0% -> 90.0%` (`+0.0 pp`)
+- avg score: `94.6 -> 94.6` (`+0.0`)
+- `multi_017` remained a stable quality failure in both arms (`0/3 -> 0/3`), so it is not a pruning regression.
+
+Latency result:
+
+- avg duration: `81.8s -> 75.0s`
+- delta: `-6.8s` (`-8.3%`)
+
+Token result:
+
+- input tokens: `1,218,967 -> 1,387,583` (`+168,616`, `+13.8%`)
+- output tokens: `146,858 -> 146,185` (`-673`, `-0.5%`)
+- total tokens: `1,365,825 -> 1,533,768` (`+167,943`, `+12.3%`)
+
+Per-agent token attribution:
+
+- `CodeGenAgent`: `1,199,964 -> 1,377,368` (`+177,404`, `+14.8%`)
+- `ReviewAgent`: `143,497 -> 143,914` (`+417`, `+0.3%`)
+- `RefineAgent`: `22,364 -> 12,486` (`-9,878`, `-44.2%`)
+
+Per-case token direction:
+
+- `pruning_on` total tokens higher in 5 cases.
+- `pruning_on` total tokens lower in 5 cases.
+- mean per-case total-token delta: `+25.2%`.
+- median per-case total-token delta: `+3.2%`.
+- range: `-13.2%` to `+177.2%`.
+- The large positive mean is driven primarily by `multi_011` and `multi_012`; the median is much smaller.
+
+Conclusion:
+
+- Context pruning preserved quality on this validated sharded pass@3 benchmark.
+- The token-reduction hypothesis was not supported.
+- With per-run/per-agent attribution, observed total tokens increased by `+12.3%`, driven by `CodeGenAgent` input (`+16.6%` in the token attribution report).
+- This should not be presented as a token-saving result.
+
+Resume/interview-safe phrasing:
+
+- "I built a pass@k A/B eval harness with sharded execution, chat-history isolation, infra failure invalidation, Java health gates, and per-run Prometheus token attribution. In a 10-case x 3-run multi-file benchmark, context pruning preserved pass@3 at 90%, while token savings were not supported; per-agent attribution showed CodeGenAgent input increased, so I reported the null/negative token finding instead of overstating it."
+
+Next step:
+
+- Open a Java-side mechanism issue to explain why `CodeGenAgent` input increased:
+  - CodeGenAgent invocation count.
+  - per-call prompt/context token size.
+  - actual pruned vs unpruned context fields delivered to CodeGenAgent.

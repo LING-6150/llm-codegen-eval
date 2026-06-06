@@ -597,12 +597,13 @@ Per-agent token deltas:
 Interpretation:
 
 - Context pruning did not regress pass@3, pass@1, run-level pass rate, or average score on this sharded multi-file pass@3 experiment.
-- The expected token reduction was not observed in this run. Total tokens increased by 10.4%, mostly from `CodeGenAgent`.
+- The expected token reduction cannot be claimed from this run. Aggregate Prometheus token delta was +10.4%, mostly from `CodeGenAgent`, but raw `EvalResult.total_tokens` is still 0 for each run, so the token effect is not yet supported by per-run attribution or confidence intervals.
+- This should be treated as inconclusive token evidence, not as a proven token saving or a proven token regression. A prior valid pass@1 run had the opposite aggregate token sign, reinforcing that per-run token attribution is needed before making a resume claim about token reduction.
 - `multi_017` remained a stable quality failure in both configs (`0/3 -> 0/3`), so it is not a pruning regression.
 - The valid resume/interview claim from this run is:
-  - "I built a sharded pass@3 A/B eval protocol with health gates and infra invalidation. Context pruning preserved pass@3 on multi-file cases, but the first full sharded run showed +10.4% tokens, so I did not claim token reduction."
+  - "I built a sharded pass@3 A/B eval protocol with health gates and infra invalidation. Context pruning preserved pass@3 on multi-file cases, while token savings were inconclusive at this sample size because per-run token attribution was not yet available."
 
 Next technical follow-up:
 
-- Investigate why current pruning rules increase `CodeGenAgent` token usage on several shards.
-- Inspect prompt/context payload before and after pruning per agent before rerunning the token-reduction hypothesis.
+- Add per-run/per-agent token attribution before rerunning the token-reduction hypothesis.
+- Inspect prompt/context payload and `CodeGenAgent` invocation count before and after pruning.

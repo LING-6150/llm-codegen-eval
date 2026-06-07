@@ -74,6 +74,7 @@ async def run_config(
     health_check: bool,
     capture_run_tokens: bool,
     capture_token_metrics: bool,
+    clear_redis_memory: bool,
 ) -> tuple[list[EvalResult], TokenSummary | None]:
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
     java_params = java_request_params(config)
@@ -90,14 +91,30 @@ async def run_config(
             )
         )
 
-    def before_case_run(case, run_index: int, total_runs: int):
+    async def cleanup_redis_chat_memory():
+        try:
+            await client.clear_chat_memory()
+        except Exception as exc:
+            raise PreflightError(
+                f"Failed to clear Redis chat memory for appId={client.app_id}: {exc}"
+            ) from exc
+
+    async def cleanup_eval_memory():
         if clear_history:
             cleanup_chat_history()
+        if clear_redis_memory:
+            await cleanup_redis_chat_memory()
 
-    if clear_history:
-        print(f"\nPre-flight ({config.name}): checking chat_history cleanup for appId={client.app_id}...")
-        cleanup_chat_history()
-        print(f"Pre-flight ({config.name}): mysql cleanup check passed.")
+    async def before_case_run(case, run_index: int, total_runs: int):
+        await cleanup_eval_memory()
+
+    if clear_history or clear_redis_memory:
+        print(f"\nPre-flight ({config.name}): checking eval memory cleanup for appId={client.app_id}...")
+        await cleanup_eval_memory()
+        if clear_history:
+            print(f"Pre-flight ({config.name}): mysql cleanup check passed.")
+        if clear_redis_memory:
+            print(f"Pre-flight ({config.name}): redis chat memory cleanup check passed.")
 
     token_before = None
     if capture_token_metrics:
@@ -178,6 +195,7 @@ async def main(
     health_check: bool = True,
     capture_run_tokens: bool = False,
     capture_token_metrics: bool = True,
+    clear_redis_memory: bool = True,
 ):
     if runs_per_case < 1:
         raise ValueError("--runs-per-case must be >= 1")
@@ -236,6 +254,7 @@ async def main(
             health_check,
             capture_run_tokens,
             capture_token_metrics,
+            clear_redis_memory,
         )
         results_b, token_summary_b = await run_config(
             config_b,
@@ -254,6 +273,7 @@ async def main(
             health_check,
             capture_run_tokens,
             capture_token_metrics,
+            clear_redis_memory,
         )
     except PreflightError as e:
         print(f"❌ Pre-flight failed: {e}")
@@ -284,6 +304,7 @@ async def main(
             "Duration": f"{duration:.1f}s",
             "Runs per case": str(runs_per_case),
             "Chat history cleared": str(clear_history),
+            "Redis chat memory cleared": str(clear_redis_memory),
             "Infra retries": str(infra_retries),
             "Max consecutive infra failures": str(max_consecutive_infra_failures),
             "Cooldown seconds": str(cooldown_seconds),
@@ -346,6 +367,10 @@ if __name__ == "__main__":
                         default=True, help="Clear chat_history before each case run (default)")
     parser.add_argument("--no-clear-chat-history", dest="clear_history", action="store_false",
                         help="Skip chat_history cleanup")
+    parser.add_argument("--clear-redis-memory", dest="clear_redis_memory", action="store_true",
+                        default=True, help="Clear Redis chat memory before each case run (default)")
+    parser.add_argument("--no-clear-redis-memory", dest="clear_redis_memory", action="store_false",
+                        help="Skip Redis chat memory cleanup")
     parser.add_argument("--mysql-db", default="ling_ai_code_generation")
     parser.add_argument("--mysql-user", default="root")
     parser.add_argument("--mysql-password", help="Falls back to EVAL_MYSQL_PASSWORD or MYSQL_PWD")
@@ -377,4 +402,5 @@ if __name__ == "__main__":
         health_check=args.health_check,
         capture_run_tokens=args.capture_run_tokens,
         capture_token_metrics=args.capture_token_metrics,
+        clear_redis_memory=args.clear_redis_memory,
     ))

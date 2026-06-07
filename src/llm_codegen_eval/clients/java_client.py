@@ -33,6 +33,19 @@ class JavaServiceClient:
         except Exception:
             return False
 
+    async def clear_chat_memory(self) -> dict:
+        """Clear Java Redis-backed chat memory for this appId via diagnostics API."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/diagnostics/chat-memory/clear",
+                params={"appId": self.app_id},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        if payload.get("code") != 0:
+            raise RuntimeError(payload.get("message") or "Java chat memory cleanup failed")
+        return payload
+
     async def login(self):
         async with httpx.AsyncClient() as client:
             resp = await client.post(

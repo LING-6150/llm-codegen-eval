@@ -73,6 +73,7 @@ async def main(
     cooldown_seconds: float = 0,
     health_check: bool = True,
     capture_run_tokens: bool = False,
+    clear_redis_memory: bool = True,
 ):
     config_metadata = {}
     java_params = {}
@@ -135,21 +136,37 @@ async def main(
             )
         )
 
-    def before_case_run(case, run_index: int, total_runs: int):
+    async def cleanup_redis_chat_memory():
+        try:
+            await client.clear_chat_memory()
+        except Exception as exc:
+            raise PreflightError(
+                f"Failed to clear Redis chat memory for appId={client.app_id}: {exc}"
+            ) from exc
+
+    async def cleanup_eval_memory():
         if clear_history:
             cleanup_chat_history()
+        if clear_redis_memory:
+            await cleanup_redis_chat_memory()
+
+    async def before_case_run(case, run_index: int, total_runs: int):
+        await cleanup_eval_memory()
 
     # Pre-flight cleanup
-    if clear_history:
-        print(f"\nPre-flight: chat_history will be cleared before each case run for appId={client.app_id}.")
+    if clear_history or clear_redis_memory:
+        print(f"\nPre-flight: eval memory will be cleared before each case run for appId={client.app_id}.")
         try:
-            cleanup_chat_history()
+            await cleanup_eval_memory()
         except PreflightError as e:
             print(f"❌ Pre-flight failed: {e}")
             raise
-        print("Pre-flight: mysql cleanup check passed.")
+        if clear_history:
+            print("Pre-flight: mysql cleanup check passed.")
+        if clear_redis_memory:
+            print("Pre-flight: redis chat memory cleanup check passed.")
     else:
-        print("\nPre-flight: chat_history cleanup skipped.")
+        print("\nPre-flight: eval memory cleanup skipped.")
 
     # Run batch
     total_runs = len(cases) * runs_per_case
@@ -206,6 +223,7 @@ async def main(
             "Runs per case": str(runs_per_case),
             "App ID": client.app_id,
             "Chat history cleared": str(clear_history),
+            "Redis chat memory cleared": str(clear_redis_memory),
             "Agent workflow": str(agent),
             "Java params": java_params or "-",
             "Infra retries": str(infra_retries),
@@ -287,6 +305,10 @@ if __name__ == "__main__":
                        default=True, help="Clear chat_history for appId before running (default)")
     parser.add_argument("--no-clear-chat-history", dest="clear_history", action="store_false",
                        help="Skip chat_history cleanup")
+    parser.add_argument("--clear-redis-memory", dest="clear_redis_memory", action="store_true",
+                       default=True, help="Clear Redis chat memory before each case run (default)")
+    parser.add_argument("--no-clear-redis-memory", dest="clear_redis_memory", action="store_false",
+                       help="Skip Redis chat memory cleanup")
     parser.add_argument("--mysql-db", default="ling_ai_code_generation",
                        help="MySQL database containing chat_history")
     parser.add_argument("--mysql-user", default="root", help="MySQL user")
@@ -316,4 +338,5 @@ if __name__ == "__main__":
         cooldown_seconds=args.cooldown_seconds,
         health_check=args.health_check,
         capture_run_tokens=args.capture_run_tokens,
+        clear_redis_memory=args.clear_redis_memory,
     ))

@@ -1037,3 +1037,76 @@ uv run python scripts/analyze_token_attribution.py \
   --config-token-total-a <A total from run_ab output> \
   --config-token-total-b <B total from run_ab output>
 ```
+
+## Day 11 / #24: Redis Chat Memory Isolation
+
+Date: 2026-06-07
+
+Issue:
+
+- #24 `Isolate Redis chat memory during eval runs`
+
+Why this matters:
+
+- #23A showed that the CodeGen prompt bulk came from LangChain4j memory/history, not from the current `CodeGenInput.buildPrompt()`.
+- Diagnostics-on smoke observed:
+  - total CodeGen prompt chars: `123,398`
+  - memory/history chars: `110,013` (`~89%`)
+  - system chars: `8,340`
+  - current user/buildPrompt chars: `5,045`
+  - memory messages: `17`
+- The previous eval preflight cleared MySQL `chat_history`, but did not clear Redis `RedisChatMemoryStore`.
+- `ChatHistoryServiceImpl.loadChatHistoryToMemory()` returns early when MySQL history is empty, so `chatMemory.clear()` is skipped in the eval state.
+- Therefore the shared appId can retain Redis `MessageWindowChatMemory` across case runs and across the A -> B arm boundary.
+
+Impact on previous token conclusions:
+
+- #13/#22 pass@k and score observations remain useful as quality measurements, but token deltas from pre-#24 runs are provisionally invalidated for pruning-token claims.
+- The observed `+12.3%` total-token delta and `+14.8%` CodeGenAgent delta may be driven by Redis memory carryover rather than context pruning.
+- Do not cite token savings or token regression until the A/B benchmark is rerun with Redis memory isolation enabled.
+
+Implementation:
+
+- Java:
+  - Added diagnostics-gated endpoint:
+    - `POST /api/diagnostics/chat-memory/clear?appId=<appId>`
+  - The endpoint calls `RedisChatMemoryStore.deleteMessages(appId)`.
+  - Endpoint is gated by `context.pruning.diagnostics.enabled`; when disabled, it returns a forbidden response and does not clear memory.
+- Eval:
+  - Added `JavaServiceClient.clear_chat_memory()`.
+  - Added Redis memory cleanup to `run_ab.py` and `run_benchmark.py` preflight.
+  - Cleanup order before each run:
+    1. clear MySQL `chat_history`
+    2. clear Redis chat memory
+    3. start generation
+  - Added CLI controls:
+    - `--clear-redis-memory` (default)
+    - `--no-clear-redis-memory`
+
+Verification:
+
+```bash
+# Java
+./mvnw -q -Dtest=DiagnosticsControllerTest,AiModelMonitorListenerTest,AiModelMetricsCollectorTest test
+./mvnw -q -DskipTests compile
+git diff --check
+
+# Eval
+uv run pytest -q
+PYTHONPYCACHEPREFIX=/private/tmp/eval-pycache python3 -m compileall src tests scripts
+git diff --check
+```
+
+Result:
+
+- Java targeted tests: passed.
+- Java compile: passed.
+- Eval tests: `63 passed`.
+- Eval compileall: passed.
+
+Next step:
+
+- Restart Java with `context.pruning.diagnostics.enabled=true`.
+- Run a diagnostics-on smoke with default Redis cleanup.
+- Verify first CodeGen request after cleanup has memory messages absent/zero and memory chars absent/near zero.
+- Only after that, rerun the sharded pass@3 pruning A/B benchmark for a trustworthy token delta.

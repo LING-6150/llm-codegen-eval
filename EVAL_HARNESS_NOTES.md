@@ -1110,3 +1110,96 @@ Next step:
 - Run a diagnostics-on smoke with default Redis cleanup.
 - Verify first CodeGen request after cleanup has memory messages absent/zero and memory chars absent/near zero.
 - Only after that, rerun the sharded pass@3 pruning A/B benchmark for a trustworthy token delta.
+
+## Day 12 / #24: Isolated Sharded Pass@3 Rerun
+
+Date: 2026-06-09
+
+Issue:
+
+- #24 `Isolate Redis chat memory during eval runs`
+
+Protocol:
+
+- Java diagnostics enabled: `context.pruning.diagnostics.enabled=true`.
+- Eval preflight cleared both stores before every run:
+  - MySQL `chat_history`
+  - Redis `RedisChatMemoryStore` via the diagnostics clear endpoint
+- Same 10 `multi_file` cases as the earlier #13 pass@3 experiment.
+- Sharded execution:
+  - `multi_011,multi_012`: `20260608_221211`
+  - `multi_013,multi_014`: `20260609_203736`
+  - `multi_015,multi_016`: `20260609_210852`
+  - `multi_017,multi_018`: `20260609_213403`
+  - `multi_019,multi_020`: `20260609_215316`
+- Each shard used:
+  - `--runs-per-case 3`
+  - `--infra-retries 1`
+  - `--max-consecutive-infra-failures 3`
+  - `--cooldown-seconds 10`
+  - `--capture-run-tokens`
+  - default Redis memory cleanup enabled
+
+Artifacts:
+
+- Merged report: `reports/ab_pruning_off_vs_pruning_on_isolated_sharded_20260609_215316.md`
+- Token attribution report: `reports/token_attribution_pruning_off_vs_pruning_on_isolated_sharded_20260609_215316.md`
+- Raw A: `reports/raw_ab_pruning_off_isolated_sharded_20260609_215316.json`
+- Raw B: `reports/raw_ab_pruning_on_isolated_sharded_20260609_215316.json`
+
+Validity:
+
+- 5/5 included shards completed.
+- Batch aborted: `False` for all included shards.
+- Final infra/provider errors: `0` vs `0`.
+- Other generation errors: `0` vs `0`.
+- Suspicious empty generations: `0` vs `0`.
+- Recovered infra retries: `2` vs `2`.
+- Valid token runs: `30/30` vs `30/30`.
+- Paired cases: `10/10`.
+- Token cross-check:
+  - `pruning_off`: valid/accounted/config total all `323,192`, match.
+  - `pruning_on`: valid/accounted/config total all `317,785`, match.
+
+Quality result:
+
+- pass@3: `90.0% -> 90.0%` (`+0.0 pp`)
+- pass@1: `50.0% -> 90.0%` (`+40.0 pp`)
+- run-level pass rate: `60.0% -> 86.7%` (`+26.7 pp`)
+- avg score: `84.8 -> 90.5` (`+5.7`)
+- `multi_017` remained a stable quality failure in both arms (`0/3 -> 0/3`), so it is not a pruning regression.
+
+Latency result:
+
+- avg duration: `78.6s -> 78.2s`
+- delta: `-0.3s` (`-0.4%`)
+
+Token result after Redis memory isolation:
+
+- input tokens: `163,770 -> 161,325` (`-2,445`, `-1.5%`)
+- output tokens: `159,422 -> 156,460` (`-2,962`, `-1.9%`)
+- total tokens: `323,192 -> 317,785` (`-5,407`, `-1.7%`)
+
+Per-agent token attribution:
+
+- `CodeGenAgent`: `162,907 -> 156,179` (`-6,728`, `-4.1%`)
+- `ReviewAgent`: `142,823 -> 143,561` (`+738`, `+0.5%`)
+- `RefineAgent`: `17,462 -> 18,045` (`+583`, `+3.3%`)
+
+Mechanism result:
+
+- `CodeGenAgent` requests stayed `1.0 -> 1.0` for every paired case.
+- `CodeGenAgent` prompt chars/request decreased in every paired case.
+- `CodeGenAgent` input tokens/request decreased in every paired case.
+- Mechanism classification: `no_codegen_input_increase` for all 10 cases.
+
+Conclusion:
+
+- Redis chat memory isolation removed the earlier token-increase artifact.
+- The pre-#24 `+12.3%` total-token / `+14.8%` CodeGenAgent result should not be cited as a pruning effect; it was contaminated by Redis memory carryover.
+- Under isolated conditions, context pruning preserved pass@3 at `90.0%`, improved run-level stability in this sample, and made tokens effectively flat/slightly lower (`-1.7%` total).
+- This is still a 10-case directional benchmark, not a broad statistical proof of token savings. The defensible claim is quality preserved with no token increase after memory isolation.
+
+Resume/interview-safe phrasing:
+
+- "Built and hardened a sharded pass@k A/B eval harness for a multi-agent Java codegen system, including MySQL and Redis chat-memory isolation, Java health gates, infra retry invalidation, and per-run Prometheus token attribution. After discovering that Redis chat-memory carryover had polluted earlier token results, I added a diagnostics-gated memory cleanup path and reran a 10-case x 3-run benchmark: context pruning preserved pass@3 at 90% and kept tokens flat/slightly lower (-1.7%) under isolated conditions."

@@ -853,6 +853,12 @@ Issue:
 
 - #21 `Measure per-run token attribution for context pruning experiments`
 
+Status after #24:
+
+- Superseded for token claims by the Redis-isolated rerun on 2026-06-09.
+- The quality/pass@3 observations remain useful, but the token deltas below are invalidated as pruning-effect evidence because the eval was still carrying Redis `MessageWindowChatMemory` across runs and across the A -> B arm boundary.
+- Do not cite the `+12.3%` total-token / `+14.8%` CodeGenAgent result as a pruning result. The corrected token result is recorded in Day 12.
+
 Protocol:
 
 - 10 multi-file cases: `multi_011` through `multi_020`.
@@ -938,14 +944,13 @@ Per-case token direction:
 
 Conclusion:
 
-- Context pruning preserved quality on this validated sharded pass@3 benchmark.
-- The token-reduction hypothesis was not supported.
-- With per-run/per-agent attribution, observed total tokens increased by `+12.3%`, driven by `CodeGenAgent` input (`+16.6%` in the token attribution report).
-- This should not be presented as a token-saving result.
+- Context pruning preserved pass@3 on this sharded benchmark, but the token analysis in this section is superseded.
+- After #23A/#24, the apparent token increase was traced to Redis chat-memory carryover on the shared appId. The eval cleared MySQL `chat_history`, but not Redis `MessageWindowChatMemory`; when MySQL history was empty, `loadChatHistoryToMemory()` returned before `chatMemory.clear()`, so stale Redis memory remained.
+- This section should be treated as an important diagnostic step, not as a final pruning-token result.
 
 Resume/interview-safe phrasing:
 
-- "I built a pass@k A/B eval harness with sharded execution, chat-history isolation, infra failure invalidation, Java health gates, and per-run Prometheus token attribution. In a 10-case x 3-run multi-file benchmark, context pruning preserved pass@3 at 90%, while token savings were not supported; per-agent attribution showed CodeGenAgent input increased, so I reported the null/negative token finding instead of overstating it."
+- Superseded by Day 12. Use the Day 12 phrasing instead, because it includes Redis memory isolation and the corrected token result.
 
 Next step:
 
@@ -1169,6 +1174,12 @@ Quality result:
 - avg score: `84.8 -> 90.5` (`+5.7`)
 - `multi_017` remained a stable quality failure in both arms (`0/3 -> 0/3`), so it is not a pruning regression.
 
+Quality interpretation:
+
+- The citable quality result is pass@3 preservation: `90.0% -> 90.0%`.
+- The pass@1/run-level improvement was observed, but is not claimed as a pruning effect. Each shard still ran all A attempts before B attempts, so arm is confounded with order/time, and `n=10` is directional only.
+- A stability claim would require a separate arm-order-randomized or swapped confirmation run. That is optional and not needed for closing #24.
+
 Latency result:
 
 - avg duration: `78.6s -> 78.2s`
@@ -1197,9 +1208,26 @@ Conclusion:
 
 - Redis chat memory isolation removed the earlier token-increase artifact.
 - The pre-#24 `+12.3%` total-token / `+14.8%` CodeGenAgent result should not be cited as a pruning effect; it was contaminated by Redis memory carryover.
-- Under isolated conditions, context pruning preserved pass@3 at `90.0%`, improved run-level stability in this sample, and made tokens effectively flat/slightly lower (`-1.7%` total).
+- Under isolated conditions, context pruning preserved pass@3 at `90.0%`, kept tokens effectively flat/slightly lower (`-1.7%` total), and reduced the CodeGen input it directly controls (`-17.6%` aggregate in the token attribution report).
+- The run-level/pass@1 stability improvement is recorded as an observed signal only, not as an established pruning effect.
 - This is still a 10-case directional benchmark, not a broad statistical proof of token savings. The defensible claim is quality preserved with no token increase after memory isolation.
 
 Resume/interview-safe phrasing:
 
-- "Built and hardened a sharded pass@k A/B eval harness for a multi-agent Java codegen system, including MySQL and Redis chat-memory isolation, Java health gates, infra retry invalidation, and per-run Prometheus token attribution. After discovering that Redis chat-memory carryover had polluted earlier token results, I added a diagnostics-gated memory cleanup path and reran a 10-case x 3-run benchmark: context pruning preserved pass@3 at 90% and kept tokens flat/slightly lower (-1.7%) under isolated conditions."
+- "Built and hardened a sharded pass@k A/B eval harness for a multi-agent Java codegen system, including MySQL and Redis chat-memory isolation, Java health gates, infra retry invalidation, and per-run Prometheus token attribution. After discovering that Redis chat-memory carryover had polluted earlier token results, I added prompt-composition diagnostics and a memory isolation path, then reran a 10-case x 3-run benchmark: context pruning preserved pass@3 at 90%, reduced the CodeGen input it directly controls by about 18%, and did not increase total tokens under isolated conditions."
+
+Issue close-out text:
+
+```text
+#24 close-out:
+
+Redis memory isolation is implemented and validated. The eval now clears MySQL chat_history and Redis RedisChatMemoryStore before every run. In the isolated diagnostics-on rerun (10 multi-file cases x 3 runs, 5/5 shards, aborted=False, final infra errors=0, suspicious empties=0), CodeGen requests stayed 1->1, CodeGen prompt chars/request decreased for every paired case, and CodeGen input tokens/request decreased for every paired case. Token cross-check matched exactly in both arms.
+
+The previous ~96K-123K CodeGen prompt was reduced to ~2.7K prompt chars/request after isolation, confirming that the old token increase was Redis chat-memory carryover. Closing #24.
+
+#13/#22 corrected token note:
+
+The pre-#24 token deltas are invalidated as pruning-effect evidence. The observed +12.3% total-token / +14.8% CodeGenAgent result came from shared-appId Redis MessageWindowChatMemory carryover: the eval cleared MySQL chat_history but not Redis memory, and loadChatHistoryToMemory() skipped chatMemory.clear() when MySQL history was empty.
+
+Corrected isolated result: pass@3 was preserved at 90.0%, total tokens were effectively flat/slightly lower (-1.7%), and CodeGen input decreased by about 18%. The pass@1/run-level improvement was observed but remains directional only because the run is n=10 and arm/order-confounded.
+```

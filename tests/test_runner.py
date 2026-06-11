@@ -90,3 +90,19 @@ async def test_run_case_attaches_execution_smoke_when_enabled(monkeypatch):
     assert result.execution_smoke is not None
     assert result.execution_smoke.passed is True
     assert result.execution_smoke.checked_selectors == ["h1"]
+
+
+@pytest.mark.asyncio
+async def test_run_case_does_not_call_execution_smoke_when_disabled(monkeypatch):
+    async def unexpected_execution_smoke(code, case):
+        raise AssertionError("execution smoke should be opt-in")
+
+    monkeypatch.setattr(
+        "llm_codegen_eval.core.runner.evaluate_execution_smoke",
+        unexpected_execution_smoke,
+    )
+
+    result = await run_case(make_case(), FakeClient(), execution_smoke=False)
+
+    assert result.passed is True
+    assert result.execution_smoke is None

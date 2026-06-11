@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from llm_codegen_eval.core.batch_runner import is_infra_error, load_results, save_results
 from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult
@@ -55,6 +56,40 @@ def test_save_and_load_results_round_trip_execution_smoke(tmp_path: Path):
     assert loaded[0].execution_smoke is not None
     assert loaded[0].execution_smoke.failure_type == "console_error"
     assert loaded[0].execution_smoke.checked_selectors == ["h1"]
+
+
+def test_load_results_accepts_legacy_raw_without_execution_smoke(tmp_path: Path):
+    path = tmp_path / "legacy_raw.json"
+    path.write_text(
+        json.dumps([
+            {
+                "case_id": "case_a",
+                "passed": True,
+                "score": 100,
+                "required_passed": 1,
+                "required_total": 1,
+                "required_failed": [],
+                "optional_passed": 0,
+                "optional_total": 0,
+                "forbidden_found": [],
+                "generation_duration_ms": 10,
+                "review_score": None,
+                "review_passed": None,
+                "total_tokens": 0,
+                "generated_code": "<h1>Hello</h1>",
+                "error": None,
+                "run_at": "2026-06-11T00:00:00",
+                "run_config": {"run_index": 1},
+            }
+        ]),
+        encoding="utf-8",
+    )
+
+    loaded = load_results(path)
+
+    assert len(loaded) == 1
+    assert loaded[0].passed is True
+    assert loaded[0].execution_smoke is None
 
 
 def test_is_infra_error_detects_transient_provider_failures():

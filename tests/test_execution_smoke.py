@@ -57,16 +57,19 @@ class FakeBrowser:
 
 
 class FakeChromium:
-    def __init__(self, page):
+    def __init__(self, page, launch_error: Exception | None = None):
         self.page = page
+        self.launch_error = launch_error
 
     async def launch(self):
+        if self.launch_error:
+            raise self.launch_error
         return FakeBrowser(self.page)
 
 
 class FakePlaywrightContext:
-    def __init__(self, page):
-        self.chromium = FakeChromium(page)
+    def __init__(self, page, launch_error: Exception | None = None):
+        self.chromium = FakeChromium(page, launch_error=launch_error)
 
     async def __aenter__(self):
         return self
@@ -77,6 +80,10 @@ class FakePlaywrightContext:
 
 def fake_playwright(page):
     return lambda: FakePlaywrightContext(page)
+
+
+def fake_playwright_launch_error(error: Exception):
+    return lambda: FakePlaywrightContext(FakePage(), launch_error=error)
 
 
 def html_case() -> EvalCase:
@@ -154,6 +161,21 @@ async def test_execution_smoke_reports_missing_element():
     assert result.failure_type == "missing_element"
     assert "Cards" in result.detail
     assert "Form id" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_execution_smoke_reports_browser_launch_failure_as_checker_error():
+    result = await evaluate_execution_smoke(
+        "<html><body><h1>Hello</h1></body></html>",
+        html_case(),
+        playwright_factory=fake_playwright_launch_error(RuntimeError("browser missing")),
+    )
+
+    assert result.applicable is True
+    assert result.passed is False
+    assert result.failure_type == "checker_error"
+    assert "browser missing" in result.detail
+    assert result.checked_selectors == ["h1", ".card", "form"]
 
 
 @pytest.mark.asyncio

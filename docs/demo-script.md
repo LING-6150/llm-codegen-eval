@@ -1,6 +1,6 @@
 # Three-Minute Interview Demo Script
 
-This script is for a concise walkthrough of the eval harness and the Redis chat-memory carryover incident.
+This script is for a concise walkthrough of the eval harness and the Redis chat-memory carryover incident. It is a walkthrough of committed code and saved reports, not a live generation run.
 
 ## Setup Before The Demo
 

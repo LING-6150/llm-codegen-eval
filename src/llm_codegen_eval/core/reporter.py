@@ -74,7 +74,7 @@ def generate_markdown(
         lines.append(
             f"- **Execution smoke pass rate**: "
             f"{execution_summary['pass_rate']:.1%} "
-            f"({execution_summary['passed']}/{execution_summary['applicable']} applicable runs)"
+            f"({execution_summary['passed']}/{execution_summary['judged']} judged runs)"
         )
         lines.append(f"- **Execution checker errors**: {execution_summary['checker_errors']}")
     lines.append("")
@@ -300,7 +300,7 @@ def generate_ab_report(
         lines.append(
             f"| Execution smoke pass rate | {_format_execution_rate(execution_a)} | "
             f"{_format_execution_rate(execution_b)} | "
-            f"{_format_percent_delta(execution_b['pass_rate'] - execution_a['pass_rate'])} |"
+            f"{_format_execution_rate_delta(execution_a, execution_b)} |"
         )
         lines.append(
             f"| Execution checker errors | {execution_a['checker_errors']} | "
@@ -552,6 +552,7 @@ def _execution_summary(results: list[EvalResult]) -> dict[str, Any]:
             "enabled": False,
             "total": 0,
             "applicable": 0,
+            "judged": 0,
             "passed": 0,
             "failed": 0,
             "checker_errors": 0,
@@ -560,26 +561,36 @@ def _execution_summary(results: list[EvalResult]) -> dict[str, Any]:
         }
 
     applicable = [r for r in smoke_results if r.applicable]
-    passed = [r for r in applicable if r.passed]
     checker_errors = [r for r in applicable if r.failure_type == "checker_error"]
+    judged = [r for r in applicable if r.failure_type != "checker_error"]
+    passed = [r for r in judged if r.passed]
     return {
         "enabled": True,
         "total": len(smoke_results),
         "applicable": len(applicable),
+        "judged": len(judged),
         "passed": len(passed),
-        "failed": len(applicable) - len(passed),
+        "failed": len(judged) - len(passed),
         "checker_errors": len(checker_errors),
         "not_applicable": len(smoke_results) - len(applicable),
-        "pass_rate": len(passed) / len(applicable) if applicable else 0.0,
+        "pass_rate": len(passed) / len(judged) if judged else 0.0,
     }
 
 
 def _format_execution_rate(summary: dict[str, Any]) -> str:
     if not summary["enabled"]:
         return "-"
-    if summary["applicable"] == 0:
+    if summary["judged"] == 0:
         return "n/a"
-    return f"{summary['pass_rate']:.1%} ({summary['passed']}/{summary['applicable']})"
+    return f"{summary['pass_rate']:.1%} ({summary['passed']}/{summary['judged']})"
+
+
+def _format_execution_rate_delta(summary_a: dict[str, Any], summary_b: dict[str, Any]) -> str:
+    if not summary_a["enabled"] or not summary_b["enabled"]:
+        return "-"
+    if summary_a["judged"] == 0 or summary_b["judged"] == 0:
+        return "n/a"
+    return _format_percent_delta(summary_b["pass_rate"] - summary_a["pass_rate"])
 
 
 def _format_execution_smoke_section(results: list[EvalResult]) -> list[str]:
@@ -589,22 +600,23 @@ def _format_execution_smoke_section(results: list[EvalResult]) -> list[str]:
         "",
         "Smoke-level runtime/build validation is reported separately from structural score.",
         "",
-        "| Case ID | Applicable Runs | Passed | Checker Errors | Failure Types |",
-        "|---------|-----------------|--------|----------------|---------------|",
+        "| Case ID | Judged Runs | Passed | Checker Errors | App Failure Types |",
+        "|---------|-------------|--------|----------------|-------------------|",
     ]
     for case_id, case_results in grouped.items():
         smoke = [r.execution_smoke for r in case_results if r.execution_smoke is not None]
         applicable = [r for r in smoke if r.applicable]
-        passed = [r for r in applicable if r.passed]
         checker_errors = [r for r in applicable if r.failure_type == "checker_error"]
+        judged = [r for r in applicable if r.failure_type != "checker_error"]
+        passed = [r for r in judged if r.passed]
         failure_types = sorted({
             r.failure_type
-            for r in applicable
+            for r in judged
             if not r.passed and r.failure_type
         })
         lines.append(
-            f"| {case_id} | {len(applicable)}/{len(smoke)} | "
-            f"{len(passed)}/{len(applicable)} | {len(checker_errors)} | "
+            f"| {case_id} | {len(judged)}/{len(smoke)} | "
+            f"{len(passed)}/{len(judged)} | {len(checker_errors)} | "
             f"{', '.join(failure_types) if failure_types else '-'} |"
         )
     return lines
@@ -642,11 +654,20 @@ def _execution_case_status(results: list[EvalResult]) -> str:
     applicable = [r for r in smoke if r.applicable]
     if not applicable:
         return "n/a"
-    passed = sum(1 for r in applicable if r.passed)
+    checker_errors = sum(1 for r in applicable if r.failure_type == "checker_error")
+    judged = [r for r in applicable if r.failure_type != "checker_error"]
+    if not judged:
+        return f"checker_error {checker_errors}" if checker_errors else "n/a"
+    passed = sum(1 for r in judged if r.passed)
     failure_types = sorted({
         r.failure_type
-        for r in applicable
+        for r in judged
         if not r.passed and r.failure_type
     })
-    suffix = f" ({', '.join(failure_types)})" if failure_types else ""
-    return f"{passed}/{len(applicable)}{suffix}"
+    suffix_parts = []
+    if failure_types:
+        suffix_parts.append(", ".join(failure_types))
+    if checker_errors:
+        suffix_parts.append(f"checker_error {checker_errors}")
+    suffix = f" ({'; '.join(suffix_parts)})" if suffix_parts else ""
+    return f"{passed}/{len(judged)}{suffix}"

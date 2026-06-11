@@ -200,7 +200,7 @@ def test_generate_markdown_includes_separate_execution_smoke_section():
 
     report = generate_markdown(results, cases)
 
-    assert "- **Execution smoke pass rate**: 50.0% (1/2 applicable runs)" in report
+    assert "- **Execution smoke pass rate**: 50.0% (1/2 judged runs)" in report
     assert "## Execution Smoke" in report
     assert "reported separately from structural score" in report
     assert "| case_a | 1/1 | 1/1 | 0 | - |" in report
@@ -219,3 +219,30 @@ def test_generate_ab_report_includes_execution_smoke_without_changing_structural
     assert "## Execution Smoke" in report
     assert "reported separately from structural pass@k" in report
     assert "| case_a | 1/1 | 0/1 (missing_element) |" in report
+
+
+def test_execution_smoke_checker_errors_do_not_count_as_app_failures():
+    cases = [make_case("case_a"), make_case("case_b")]
+    results = [
+        with_execution(make_result("case_a", True, 100, 1), True),
+        with_execution(make_result("case_b", True, 100, 1), False, "checker_error", "browser missing"),
+    ]
+
+    report = generate_markdown(results, cases)
+
+    assert "- **Execution smoke pass rate**: 100.0% (1/1 judged runs)" in report
+    assert "- **Execution checker errors**: 1" in report
+    assert "| case_a | 1/1 | 1/1 | 0 | - |" in report
+    assert "| case_b | 0/1 | 0/0 | 1 | - |" in report
+
+
+def test_ab_execution_smoke_checker_errors_do_not_count_as_app_failures():
+    cases = [make_case("case_a")]
+    results_a = [with_execution(make_result("case_a", True, 90, 1), True)]
+    results_b = [with_execution(make_result("case_a", True, 90, 1), False, "checker_error")]
+
+    report = generate_ab_report(results_a, results_b, cases, "baseline", "candidate")
+
+    assert "| Execution smoke pass rate | 100.0% (1/1) | n/a | n/a |" in report
+    assert "| Execution checker errors | 0 | 1 | +1 |" in report
+    assert "| case_a | 1/1 | checker_error 1 |" in report

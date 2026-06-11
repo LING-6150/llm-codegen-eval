@@ -109,6 +109,8 @@ For browser-based execution smoke checks, install the Playwright browser binary 
 uv run playwright install chromium
 ```
 
+If the browser/checker environment is missing or fails to launch, the report records a `checker_error` instead of counting it as a generated-app execution failure.
+
 ## Quick Start
 
 Run the smallest local smoke test:

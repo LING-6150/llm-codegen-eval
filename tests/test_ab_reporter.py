@@ -1,6 +1,6 @@
 from llm_codegen_eval.core.case import CodeType, Difficulty, EvalCase
 from llm_codegen_eval.core.reporter import generate_ab_report, generate_markdown
-from llm_codegen_eval.core.result import EvalResult
+from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult
 
 
 def make_case(case_id: str) -> EvalCase:
@@ -44,6 +44,22 @@ def make_suspicious_result(case_id: str, run_index: int = 1) -> EvalResult:
 def make_retry_result(case_id: str, retries_used: int) -> EvalResult:
     result = make_result(case_id, True, 90, 1)
     result.run_config["infra_retries_used"] = retries_used
+    return result
+
+
+def with_execution(
+    result: EvalResult,
+    passed: bool,
+    failure_type: str = "none",
+    detail: str | None = None,
+) -> EvalResult:
+    result.execution_smoke = ExecutionSmokeResult(
+        applicable=True,
+        passed=passed,
+        failure_type=failure_type,
+        detail=detail,
+        checked_selectors=["h1"],
+    )
     return result
 
 
@@ -173,3 +189,33 @@ def test_generate_markdown_flags_suspicious_empty_generation():
     assert "- **Suspicious empty generations**: 1" in report
     assert "| case_a | html | ⚠️ | 0/1 | 0 | suspicious empty 1 |" in report
     assert "**Error type**: suspicious-empty-generation" in report
+
+
+def test_generate_markdown_includes_separate_execution_smoke_section():
+    cases = [make_case("case_a"), make_case("case_b")]
+    results = [
+        with_execution(make_result("case_a", True, 100, 1), True),
+        with_execution(make_result("case_b", True, 100, 1), False, "console_error", "boom"),
+    ]
+
+    report = generate_markdown(results, cases)
+
+    assert "- **Execution smoke pass rate**: 50.0% (1/2 applicable runs)" in report
+    assert "## Execution Smoke" in report
+    assert "reported separately from structural score" in report
+    assert "| case_a | 1/1 | 1/1 | 0 | - |" in report
+    assert "| case_b | 1/1 | 0/1 | 0 | console_error |" in report
+
+
+def test_generate_ab_report_includes_execution_smoke_without_changing_structural_summary():
+    cases = [make_case("case_a")]
+    results_a = [with_execution(make_result("case_a", True, 90, 1), True)]
+    results_b = [with_execution(make_result("case_a", True, 90, 1), False, "missing_element")]
+
+    report = generate_ab_report(results_a, results_b, cases, "baseline", "candidate")
+
+    assert "| pass@1 | 100.0% | 100.0% | +0.0 pp |" in report
+    assert "| Execution smoke pass rate | 100.0% (1/1) | 0.0% (0/1) | -100.0 pp |" in report
+    assert "## Execution Smoke" in report
+    assert "reported separately from structural pass@k" in report
+    assert "| case_a | 1/1 | 0/1 (missing_element) |" in report

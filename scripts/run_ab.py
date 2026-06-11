@@ -75,6 +75,7 @@ async def run_config(
     capture_run_tokens: bool,
     capture_token_metrics: bool,
     clear_redis_memory: bool,
+    execution_smoke: bool,
 ) -> tuple[list[EvalResult], TokenSummary | None]:
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
     java_params = java_request_params(config)
@@ -137,6 +138,7 @@ async def run_config(
         cooldown_seconds=cooldown_seconds,
         health_check=health_check,
         capture_run_tokens=capture_run_tokens,
+        execution_smoke=execution_smoke,
     )
     token_summary = await capture_token_delta(client, config.name, token_before)
     return results, token_summary
@@ -196,6 +198,7 @@ async def main(
     capture_run_tokens: bool = False,
     capture_token_metrics: bool = True,
     clear_redis_memory: bool = True,
+    execution_smoke: bool = False,
 ):
     if runs_per_case < 1:
         raise ValueError("--runs-per-case must be >= 1")
@@ -255,6 +258,7 @@ async def main(
             capture_run_tokens,
             capture_token_metrics,
             clear_redis_memory,
+            execution_smoke,
         )
         results_b, token_summary_b = await run_config(
             config_b,
@@ -274,6 +278,7 @@ async def main(
             capture_run_tokens,
             capture_token_metrics,
             clear_redis_memory,
+            execution_smoke,
         )
     except PreflightError as e:
         print(f"❌ Pre-flight failed: {e}")
@@ -310,6 +315,11 @@ async def main(
             "Cooldown seconds": str(cooldown_seconds),
             "Health check": str(health_check),
             "Run token attribution": str(capture_run_tokens),
+            "Execution smoke validation": str(execution_smoke),
+            "Execution smoke mode": (
+                "smoke-level browser/build validation; reported separately from structural score"
+                if execution_smoke else "disabled"
+            ),
             "Run token attribution mode": (
                 "Prometheus per-attempt counter delta; valid only for sequential runs "
                 "with no concurrent traffic on the same appId"
@@ -362,6 +372,10 @@ if __name__ == "__main__":
                         default=False, help="Capture per-run Prometheus token deltas")
     parser.add_argument("--no-capture-run-tokens", dest="capture_run_tokens", action="store_false",
                         help="Disable per-run token attribution (default)")
+    parser.add_argument("--execution-smoke", dest="execution_smoke", action="store_true",
+                        default=False, help="Run smoke-level execution validation when supported")
+    parser.add_argument("--no-execution-smoke", dest="execution_smoke", action="store_false",
+                        help="Disable execution smoke validation (default)")
     parser.add_argument("--app-id", help="Java service appId to use")
     parser.add_argument("--clear-chat-history", dest="clear_history", action="store_true",
                         default=True, help="Clear chat_history before each case run (default)")
@@ -403,4 +417,5 @@ if __name__ == "__main__":
         capture_run_tokens=args.capture_run_tokens,
         capture_token_metrics=args.capture_token_metrics,
         clear_redis_memory=args.clear_redis_memory,
+        execution_smoke=args.execution_smoke,
     ))

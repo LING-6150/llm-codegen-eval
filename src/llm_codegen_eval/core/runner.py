@@ -6,6 +6,7 @@ from ..clients.java_client import JavaServiceClient
 from ..evaluators.html_eval import HtmlEvaluator
 from ..evaluators.vue_eval import VueEvaluator
 from ..evaluators.base import BaseEvaluator
+from ..evaluators.execution_smoke import evaluate_execution_smoke
 
 _EVALUATORS: dict[CodeType, type[BaseEvaluator]] = {
     CodeType.HTML: HtmlEvaluator,
@@ -18,6 +19,7 @@ async def run_case(
     client: JavaServiceClient,
     agent: bool = True,
     java_params: dict | None = None,
+    execution_smoke: bool = False,
 ) -> EvalResult:
     try:
         gen_result = await client.generate(case.prompt, agent=agent, extra_params=java_params)
@@ -72,6 +74,8 @@ async def run_case(
 
     evaluator = evaluator_cls()
     result = await evaluator.evaluate(gen_result["code"], case)
+    if execution_smoke:
+        result.execution_smoke = await evaluate_execution_smoke(gen_result["code"], case)
 
     result.generation_duration_ms = gen_result["duration_ms"]
     result.review_score = gen_result.get("review_score")

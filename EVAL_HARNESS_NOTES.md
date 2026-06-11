@@ -2,9 +2,9 @@
 
 ## Current Result
 
-- Context pruning reduced measured model tokens by 7.0%.
-- pass@1 stayed at 90.0% on the 10-case `multi_file` benchmark.
-- Latest known report: `reports/ab_pruning_off_vs_pruning_on_20260530_000411.md`.
+- Corrected isolated result: context pruning preserved structural pass@3 at `90.0%`, kept total tokens effectively flat/slightly lower (`-1.7%`), and reduced CodeGen-stage input by about `18%`.
+- The pre-#24 token deltas, including the early `-7.0%` pass@1 run and the later `+12.3%` sharded run, should not be used as final pruning-token claims. The corrected result is Day 12.
+- Latest corrected report: `reports/ab_pruning_off_vs_pruning_on_isolated_sharded_20260609_215316.md`.
 
 ## Day 7 / Issue #13: pass@3 Pruning Stability
 
@@ -105,7 +105,7 @@ Interpretation:
 - This smoke run validates that the pass@3 pipeline works end to end with chat history cleanup, infra retry tracking, and token metric capture.
 - On this 4-case subset, pruning preserved pass@3 and pass@1 at 100.0%.
 - Do not cite token reduction from this smoke run. Token usage increased by 17.0% on the subset, likely because token usage is sensitive to stochastic generation length and the subset is small.
-- The strongest token-reduction result remains the earlier 10-case pass@1 run: total tokens -7.0%, pass@1 unchanged at 90.0%.
+- Superseded after Day 12: the earlier 10-case pass@1 token result is no longer the strongest token-reduction result and should not be used as a current pruning-token claim.
 - Issue #13 should remain open until the full 10-case `runs_per_case=3` benchmark is run, or until the scope is explicitly changed to smoke-only.
 
 ## Day 7 / Issue #13 Full Attempt: Invalidated by Empty Fast Failures

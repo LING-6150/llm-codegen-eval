@@ -191,3 +191,77 @@ async def test_execution_smoke_marks_vue_not_applicable_for_now():
     assert result.applicable is False
     assert result.passed is False
     assert result.failure_type == "not_applicable"
+
+
+async def _real_browser_smoke_or_skip(code: str, case: EvalCase):
+    result = await evaluate_execution_smoke(code, case)
+    if result.failure_type == "checker_error" and result.detail and (
+        "Executable doesn't exist" in result.detail
+        or "playwright install" in result.detail
+        or "BrowserType.launch" in result.detail
+    ):
+        pytest.skip(f"Playwright browser is not installed: {result.detail.splitlines()[0]}")
+    return result
+
+
+@pytest.mark.asyncio
+async def test_real_browser_fixture_passes_known_good_html():
+    result = await _real_browser_smoke_or_skip(
+        """
+        ```html
+        <!doctype html>
+        <html>
+          <body>
+            <h1>Ready</h1>
+            <div class="card"></div>
+            <div class="card"></div>
+            <form id="contact"></form>
+          </body>
+        </html>
+        ```
+        """,
+        html_case(),
+    )
+
+    assert result.applicable is True
+    assert result.passed is True
+    assert result.failure_type == "none"
+
+
+@pytest.mark.asyncio
+async def test_real_browser_fixture_reports_console_error():
+    result = await _real_browser_smoke_or_skip(
+        """
+        <!doctype html>
+        <html>
+          <body>
+            <h1>Ready</h1>
+            <div class="card"></div>
+            <div class="card"></div>
+            <form id="contact"></form>
+            <script>console.error("fixture boom")</script>
+          </body>
+        </html>
+        """,
+        html_case(),
+    )
+
+    assert result.passed is False
+    assert result.failure_type == "console_error"
+    assert "fixture boom" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_real_browser_fixture_reports_missing_element():
+    result = await _real_browser_smoke_or_skip(
+        """
+        <!doctype html>
+        <html><body><h1>Ready</h1><div class="card"></div></body></html>
+        """,
+        html_case(),
+    )
+
+    assert result.passed is False
+    assert result.failure_type == "missing_element"
+    assert "Cards" in result.detail
+    assert "Form id" in result.detail

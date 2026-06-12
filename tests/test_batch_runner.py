@@ -7,7 +7,7 @@ from llm_codegen_eval.core.metrics import (
     RequestMetricKey,
     TokenMetricKey,
 )
-from llm_codegen_eval.core.result import EvalResult
+from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult, RepairSummary
 from llm_codegen_eval.core import batch_runner
 
 
@@ -45,6 +45,17 @@ def make_result(error: str | None, passed: bool = False) -> EvalResult:
         optional_total=0,
         error=error,
     )
+
+
+def make_execution_failure_result() -> EvalResult:
+    result = make_result(None, passed=True)
+    result.execution_smoke = ExecutionSmokeResult(
+        applicable=True,
+        passed=False,
+        failure_type="console_error",
+        detail="boom",
+    )
+    return result
 
 
 def make_snapshot(total: int) -> dict:
@@ -450,4 +461,63 @@ async def test_run_batch_rejects_run_token_capture_with_concurrency():
             FakeClient(),
             concurrency=2,
             capture_run_tokens=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_batch_keeps_repair_tokens_separate_from_first_shot(monkeypatch):
+    snapshots = [
+        make_diagnostic_snapshot(100),
+        make_diagnostic_snapshot(175),
+        make_diagnostic_snapshot(200),
+        make_diagnostic_snapshot(225),
+    ]
+
+    async def fake_capture(client):
+        return snapshots.pop(0)
+
+    async def fake_run_case(case, client, agent=True, java_params=None, execution_smoke=False):
+        return make_execution_failure_result()
+
+    async def fake_run_repair(first_shot, case, client, agent=True, java_params=None):
+        assert first_shot.run_config["token_summary"]["total"] == 75
+        return RepairSummary(
+            attempted=True,
+            succeeded=True,
+            trigger_failure_type="console_error",
+            reason="repair_succeeded",
+        )
+
+    monkeypatch.setattr(batch_runner, "_capture_diagnostic_snapshot", fake_capture)
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+    monkeypatch.setattr(batch_runner, "run_repair", fake_run_repair)
+
+    results = await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        capture_run_tokens=True,
+        execution_smoke=True,
+        repair_on_execution_fail=True,
+    )
+
+    assert results[0].total_tokens == 75
+    assert results[0].run_config["token_summary"]["total"] == 75
+    assert results[0].repair_summary is not None
+    assert results[0].repair_summary.token_summary == {
+        "input": 25,
+        "output": 0,
+        "total": 25,
+        "by_agent": {"CodeGenAgent": {"input": 25, "output": 0, "total": 25}},
+        "by_model": {"deepseek": {"input": 25, "output": 0, "total": 25}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_batch_repair_requires_execution_smoke():
+    with pytest.raises(ValueError, match="repair_on_execution_fail requires execution_smoke=True"):
+        await batch_runner.run_batch(
+            [make_case()],
+            FakeClient(),
+            repair_on_execution_fail=True,
+            execution_smoke=False,
         )

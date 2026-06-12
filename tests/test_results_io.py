@@ -2,7 +2,7 @@ from pathlib import Path
 import json
 
 from llm_codegen_eval.core.batch_runner import is_infra_error, load_results, save_results
-from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult
+from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult, RepairSummary
 
 
 def test_save_and_load_results_round_trip(tmp_path: Path):
@@ -90,6 +90,43 @@ def test_load_results_accepts_legacy_raw_without_execution_smoke(tmp_path: Path)
     assert len(loaded) == 1
     assert loaded[0].passed is True
     assert loaded[0].execution_smoke is None
+    assert loaded[0].repair_summary is None
+
+
+def test_save_and_load_results_round_trip_repair_summary(tmp_path: Path):
+    path = tmp_path / "raw.json"
+    results = [
+        EvalResult(
+            case_id="case_a",
+            passed=True,
+            score=100,
+            required_passed=1,
+            required_total=1,
+            optional_passed=0,
+            optional_total=0,
+            repair_summary=RepairSummary(
+                attempted=True,
+                succeeded=True,
+                trigger_failure_type="console_error",
+                reason="repair_succeeded",
+                repaired_structural_passed=True,
+                repaired_score=100,
+                repaired_execution_smoke=ExecutionSmokeResult(
+                    applicable=True,
+                    passed=True,
+                    failure_type="none",
+                ),
+                token_summary={"total": 42},
+            ),
+        )
+    ]
+
+    save_results(results, path)
+    loaded = load_results(path)
+
+    assert loaded[0].repair_summary is not None
+    assert loaded[0].repair_summary.succeeded is True
+    assert loaded[0].repair_summary.token_summary == {"total": 42}
 
 
 def test_is_infra_error_detects_transient_provider_failures():

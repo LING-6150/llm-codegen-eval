@@ -1,6 +1,6 @@
 from llm_codegen_eval.core.case import CodeType, Difficulty, EvalCase
 from llm_codegen_eval.core.reporter import generate_ab_report, generate_markdown
-from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult
+from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult, RepairSummary
 
 
 def make_case(case_id: str) -> EvalCase:
@@ -59,6 +59,29 @@ def with_execution(
         failure_type=failure_type,
         detail=detail,
         checked_selectors=["h1"],
+    )
+    return result
+
+
+def with_repair(
+    result: EvalResult,
+    succeeded: bool,
+    token_total: int = 0,
+    reason: str | None = None,
+) -> EvalResult:
+    result.repair_summary = RepairSummary(
+        attempted=True,
+        succeeded=succeeded,
+        trigger_failure_type="console_error",
+        reason=reason or ("repair_succeeded" if succeeded else "repaired_still_failing"),
+        repaired_structural_passed=succeeded,
+        repaired_score=100 if succeeded else 0,
+        repaired_execution_smoke=ExecutionSmokeResult(
+            applicable=True,
+            passed=succeeded,
+            failure_type="none" if succeeded else "console_error",
+        ),
+        token_summary={"total": token_total} if token_total else None,
     )
     return result
 
@@ -246,3 +269,64 @@ def test_ab_execution_smoke_checker_errors_do_not_count_as_app_failures():
     assert "| Execution smoke pass rate | 100.0% (1/1) | n/a | n/a |" in report
     assert "| Execution checker errors | 0 | 1 | +1 |" in report
     assert "| case_a | 1/1 | checker_error 1 |" in report
+
+
+def test_generate_markdown_reports_repair_separately_from_first_shot_execution():
+    cases = [make_case("case_a")]
+    first_shot_failed = with_execution(
+        make_result("case_a", True, 100, 1),
+        False,
+        "console_error",
+    )
+    with_repair(first_shot_failed, succeeded=True, token_total=123)
+
+    report = generate_markdown([first_shot_failed], cases)
+
+    assert "- **Execution smoke pass rate**: 0.0% (0/1 judged runs)" in report
+    assert "- **Pass after one repair (includes one repair)**: 100.0% (1/1)" in report
+    assert "- **Repair uplift**: +100.0 pp (pass_after_one_repair - first_shot_execution_pass)" in report
+    assert "- **Repair attempts/successes**: 1/1" in report
+    assert "- **Repair generation errors**: 0" in report
+    assert "- **Repair token cost**: 123" in report
+    assert "## One-Shot Repair" in report
+    assert "| case_a | 1 | 0/1 | 1 | 1 | 0 | 1/1 | 123 | repair_succeeded |" in report
+
+
+def test_generate_ab_report_reports_pass_after_repair_with_separate_denominator():
+    cases = [make_case("case_a")]
+    results_a = [
+        with_execution(make_result("case_a", True, 100, 1), False, "console_error")
+    ]
+    results_b = [
+        with_repair(
+            with_execution(make_result("case_a", True, 100, 1), False, "console_error"),
+            succeeded=True,
+            token_total=55,
+        )
+    ]
+
+    report = generate_ab_report(results_a, results_b, cases, "baseline", "candidate")
+
+    assert "| Execution smoke pass rate | 0.0% (0/1) | 0.0% (0/1) | +0.0 pp |" in report
+    assert "| Pass after one repair (includes one repair) | - | 100.0% (1/1) | - |" in report
+    assert "| Repair uplift | - | +100.0 pp | - |" in report
+    assert "| Repair attempts/successes | 0/0 | 1/1 | +1 successes |" in report
+    assert "| Repair generation errors | 0 | 0 | +0 |" in report
+    assert "| Repair token cost | 0 | 55 | +55 |" in report
+
+
+def test_repair_generation_errors_are_reported_separately():
+    cases = [make_case("case_a")]
+    result = with_repair(
+        with_execution(make_result("case_a", True, 100, 1), False, "console_error"),
+        succeeded=False,
+        reason="repair_generation_error",
+    )
+
+    report = generate_markdown([result], cases)
+
+    assert "- **Execution smoke pass rate**: 0.0% (0/1 judged runs)" in report
+    assert "- **Pass after one repair (includes one repair)**: 0.0% (0/1)" in report
+    assert "- **Repair attempts/successes**: 1/0" in report
+    assert "- **Repair generation errors**: 1" in report
+    assert "| case_a | 1 | 0/1 | 1 | 0 | 1 | 0/1 | 0 | repair_generation_error |" in report

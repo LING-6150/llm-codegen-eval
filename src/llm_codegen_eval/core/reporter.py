@@ -30,6 +30,7 @@ def generate_markdown(
     non_infra_errors = _non_infra_errors(results)
     suspicious_empty = _suspicious_empty_generations(results)
     execution_summary = _execution_summary(results)
+    repair_summary = _repair_summary(results)
 
     lines = []
 
@@ -77,6 +78,21 @@ def generate_markdown(
             f"({execution_summary['passed']}/{execution_summary['judged']} judged runs)"
         )
         lines.append(f"- **Execution checker errors**: {execution_summary['checker_errors']}")
+    if repair_summary["enabled"]:
+        lines.append(
+            f"- **Pass after one repair (includes one repair)**: "
+            f"{_format_repair_pass_after(repair_summary)}"
+        )
+        lines.append(
+            f"- **Repair uplift**: {_format_percent_delta(repair_summary['repair_uplift'])} "
+            "(pass_after_one_repair - first_shot_execution_pass)"
+        )
+        lines.append(
+            f"- **Repair attempts/successes**: "
+            f"{repair_summary['attempted']}/{repair_summary['succeeded']}"
+        )
+        lines.append(f"- **Repair generation errors**: {repair_summary['generation_errors']}")
+        lines.append(f"- **Repair token cost**: {repair_summary['token_cost']:,}")
     lines.append("")
 
     # === Per code_type ===
@@ -138,6 +154,10 @@ def generate_markdown(
 
     if execution_summary["enabled"]:
         lines.extend(_format_execution_smoke_section(results))
+        lines.append("")
+
+    if repair_summary["enabled"]:
+        lines.extend(_format_repair_section(results))
         lines.append("")
 
     # === Failures ===
@@ -221,6 +241,8 @@ def generate_ab_report(
     suspicious_b = len(_suspicious_empty_generations(results_b))
     execution_a = _execution_summary(results_a)
     execution_b = _execution_summary(results_b)
+    repair_a = _repair_summary(results_a)
+    repair_b = _repair_summary(results_b)
     improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
     lines = []
@@ -307,6 +329,34 @@ def generate_ab_report(
             f"{execution_b['checker_errors']} | "
             f"{_format_int_delta(execution_b['checker_errors'] - execution_a['checker_errors'])} |"
         )
+    if repair_a["enabled"] or repair_b["enabled"]:
+        lines.append(
+            f"| Pass after one repair (includes one repair) | "
+            f"{_format_repair_pass_after(repair_a)} | "
+            f"{_format_repair_pass_after(repair_b)} | "
+            f"{_format_repair_rate_delta(repair_a, repair_b)} |"
+        )
+        lines.append(
+            f"| Repair uplift | {_format_repair_uplift(repair_a)} | "
+            f"{_format_repair_uplift(repair_b)} | "
+            f"{_format_repair_uplift_delta(repair_a, repair_b)} |"
+        )
+        lines.append(
+            f"| Repair attempts/successes | "
+            f"{repair_a['attempted']}/{repair_a['succeeded']} | "
+            f"{repair_b['attempted']}/{repair_b['succeeded']} | "
+            f"{_format_int_delta(repair_b['succeeded'] - repair_a['succeeded'])} successes |"
+        )
+        lines.append(
+            f"| Repair generation errors | {repair_a['generation_errors']} | "
+            f"{repair_b['generation_errors']} | "
+            f"{_format_int_delta(repair_b['generation_errors'] - repair_a['generation_errors'])} |"
+        )
+        lines.append(
+            f"| Repair token cost | {repair_a['token_cost']:,} | "
+            f"{repair_b['token_cost']:,} | "
+            f"{_format_int_delta(repair_b['token_cost'] - repair_a['token_cost'])} |"
+        )
     lines.append("")
 
     if token_summary_a and token_summary_b:
@@ -315,6 +365,10 @@ def generate_ab_report(
 
     if execution_a["enabled"] or execution_b["enabled"]:
         lines.extend(_format_ab_execution_smoke_section(results_a, results_b, cases, name_a, name_b))
+        lines.append("")
+
+    if repair_a["enabled"] or repair_b["enabled"]:
+        lines.extend(_format_ab_repair_section(results_a, results_b, cases, name_a, name_b))
         lines.append("")
 
     lines.append("## Improvements")
@@ -562,7 +616,7 @@ def _execution_summary(results: list[EvalResult]) -> dict[str, Any]:
 
     applicable = [r for r in smoke_results if r.applicable]
     checker_errors = [r for r in applicable if r.failure_type == "checker_error"]
-    judged = [r for r in applicable if r.failure_type != "checker_error"]
+    judged = [r for r in smoke_results if _is_execution_judged(r)]
     passed = [r for r in judged if r.passed]
     return {
         "enabled": True,
@@ -593,6 +647,119 @@ def _format_execution_rate_delta(summary_a: dict[str, Any], summary_b: dict[str,
     return _format_percent_delta(summary_b["pass_rate"] - summary_a["pass_rate"])
 
 
+def _repair_summary(results: list[EvalResult]) -> dict[str, Any]:
+    repair_results = [r for r in results if r.repair_summary is not None]
+    if not repair_results:
+        return {
+            "enabled": False,
+            "judged": 0,
+            "first_shot_passed": 0,
+            "pass_after_repair": 0,
+            "first_shot_rate": 0.0,
+            "pass_after_rate": 0.0,
+            "repair_uplift": 0.0,
+            "attempted": 0,
+            "succeeded": 0,
+            "generation_errors": 0,
+            "token_cost": 0,
+        }
+
+    judged_results = _repair_judged_results(results)
+    first_shot_passed = sum(
+        1 for result in judged_results
+        if result.execution_smoke is not None and result.execution_smoke.passed
+    )
+    pass_after_repair = sum(
+        1 for result in judged_results
+        if (
+            result.execution_smoke is not None
+            and result.execution_smoke.passed
+        ) or (
+            result.repair_summary is not None
+            and result.repair_summary.succeeded
+        )
+    )
+    attempted = sum(
+        1 for result in results
+        if result.repair_summary is not None and result.repair_summary.attempted
+    )
+    succeeded = sum(
+        1 for result in results
+        if result.repair_summary is not None and result.repair_summary.succeeded
+    )
+    generation_errors = sum(
+        1 for result in results
+        if (
+            result.repair_summary is not None
+            and result.repair_summary.reason == "repair_generation_error"
+        )
+    )
+    token_cost = sum(
+        int(result.repair_summary.token_summary.get("total", 0))
+        for result in results
+        if result.repair_summary is not None and result.repair_summary.token_summary
+    )
+    judged = len(judged_results)
+    first_rate = first_shot_passed / judged if judged else 0.0
+    pass_after_rate = pass_after_repair / judged if judged else 0.0
+    return {
+        "enabled": True,
+        "judged": judged,
+        "first_shot_passed": first_shot_passed,
+        "pass_after_repair": pass_after_repair,
+        "first_shot_rate": first_rate,
+        "pass_after_rate": pass_after_rate,
+        "repair_uplift": pass_after_rate - first_rate,
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "generation_errors": generation_errors,
+        "token_cost": token_cost,
+    }
+
+
+def _is_execution_judged(smoke: Any) -> bool:
+    return bool(smoke is not None and smoke.applicable and smoke.failure_type != "checker_error")
+
+
+def _repair_judged_results(results: list[EvalResult]) -> list[EvalResult]:
+    return [result for result in results if _is_execution_judged(result.execution_smoke)]
+
+
+def _format_repair_pass_after(summary: dict[str, Any]) -> str:
+    if not summary["enabled"]:
+        return "-"
+    if summary["judged"] == 0:
+        return "n/a"
+    return (
+        f"{summary['pass_after_rate']:.1%} "
+        f"({summary['pass_after_repair']}/{summary['judged']})"
+    )
+
+
+def _format_repair_uplift(summary: dict[str, Any]) -> str:
+    if not summary["enabled"]:
+        return "-"
+    if summary["judged"] == 0:
+        return "n/a"
+    return _format_percent_delta(summary["repair_uplift"])
+
+
+def _format_repair_rate_delta(summary_a: dict[str, Any], summary_b: dict[str, Any]) -> str:
+    if not summary_a["enabled"] or not summary_b["enabled"]:
+        return "-"
+    if summary_a["judged"] == 0 or summary_b["judged"] == 0:
+        return "n/a"
+    return _format_percent_delta(summary_b["pass_after_rate"] - summary_a["pass_after_rate"])
+
+
+def _format_repair_uplift_delta(summary_a: dict[str, Any], summary_b: dict[str, Any]) -> str:
+    if not summary_a["enabled"] or not summary_b["enabled"]:
+        return "-"
+    if summary_a["judged"] == 0 or summary_b["judged"] == 0:
+        return "n/a"
+    return _format_percent_delta(summary_b["repair_uplift"] - summary_a["repair_uplift"])
+
+
 def _format_execution_smoke_section(results: list[EvalResult]) -> list[str]:
     grouped = stats.results_by_case(results)
     lines = [
@@ -607,7 +774,7 @@ def _format_execution_smoke_section(results: list[EvalResult]) -> list[str]:
         smoke = [r.execution_smoke for r in case_results if r.execution_smoke is not None]
         applicable = [r for r in smoke if r.applicable]
         checker_errors = [r for r in applicable if r.failure_type == "checker_error"]
-        judged = [r for r in applicable if r.failure_type != "checker_error"]
+        judged = [r for r in smoke if _is_execution_judged(r)]
         passed = [r for r in judged if r.passed]
         failure_types = sorted({
             r.failure_type
@@ -618,6 +785,66 @@ def _format_execution_smoke_section(results: list[EvalResult]) -> list[str]:
             f"| {case_id} | {len(judged)}/{len(smoke)} | "
             f"{len(passed)}/{len(judged)} | {len(checker_errors)} | "
             f"{', '.join(failure_types) if failure_types else '-'} |"
+        )
+    return lines
+
+
+def _format_repair_section(results: list[EvalResult]) -> list[str]:
+    grouped = stats.results_by_case(results)
+    lines = [
+        "## One-Shot Repair",
+        "",
+        "Repair results are reported separately from first-shot structural pass@k. "
+        "`pass_after_one_repair` uses the same judged denominator as first-shot execution smoke.",
+        "",
+        "| Case ID | First-Shot Judged | First-Shot Passed | Repair Attempted | Repair Succeeded | Repair Generation Errors | Pass After One Repair | Repair Token Cost | Reasons |",
+        "|---------|-------------------|-------------------|------------------|------------------|--------------------------|-----------------------|-------------------|---------|",
+    ]
+    for case_id, case_results in grouped.items():
+        judged = _repair_judged_results(case_results)
+        first_passed = sum(
+            1 for result in judged
+            if result.execution_smoke is not None and result.execution_smoke.passed
+        )
+        attempted = sum(
+            1 for result in case_results
+            if result.repair_summary is not None and result.repair_summary.attempted
+        )
+        succeeded = sum(
+            1 for result in case_results
+            if result.repair_summary is not None and result.repair_summary.succeeded
+        )
+        generation_errors = sum(
+            1 for result in case_results
+            if (
+                result.repair_summary is not None
+                and result.repair_summary.reason == "repair_generation_error"
+            )
+        )
+        pass_after = sum(
+            1 for result in judged
+            if (
+                result.execution_smoke is not None
+                and result.execution_smoke.passed
+            ) or (
+                result.repair_summary is not None
+                and result.repair_summary.succeeded
+            )
+        )
+        token_cost = sum(
+            int(result.repair_summary.token_summary.get("total", 0))
+            for result in case_results
+            if result.repair_summary is not None and result.repair_summary.token_summary
+        )
+        reasons = sorted({
+            result.repair_summary.reason
+            for result in case_results
+            if result.repair_summary is not None and result.repair_summary.reason
+        })
+        lines.append(
+            f"| {case_id} | {len(judged)} | {first_passed}/{len(judged)} | "
+            f"{attempted} | {succeeded} | {generation_errors} | {pass_after}/{len(judged)} | "
+            f"{token_cost:,} | {', '.join(reasons) if reasons else '-'} |"
         )
     return lines
 
@@ -647,6 +874,66 @@ def _format_ab_execution_smoke_section(
     return lines
 
 
+def _format_ab_repair_section(
+    results_a: list[EvalResult],
+    results_b: list[EvalResult],
+    cases: list[EvalCase],
+    name_a: str,
+    name_b: str,
+) -> list[str]:
+    grouped_a = stats.results_by_case(results_a)
+    grouped_b = stats.results_by_case(results_b)
+    lines = [
+        "## One-Shot Repair",
+        "",
+        "Pass-after-repair is shown separately and includes at most one repair attempt.",
+        "",
+        f"| Case ID | A: {name_a} | B: {name_b} |",
+        "|---------|------|------|",
+    ]
+    for case in cases:
+        lines.append(
+            f"| {case.case_id} | {_repair_case_status(grouped_a.get(case.case_id, []))} | "
+            f"{_repair_case_status(grouped_b.get(case.case_id, []))} |"
+        )
+    return lines
+
+
+def _repair_case_status(results: list[EvalResult]) -> str:
+    if not any(result.repair_summary is not None for result in results):
+        return "-"
+    judged = _repair_judged_results(results)
+    if not judged:
+        return "n/a"
+    first_passed = sum(
+        1 for result in judged
+        if result.execution_smoke is not None and result.execution_smoke.passed
+    )
+    pass_after = sum(
+        1 for result in judged
+        if (
+            result.execution_smoke is not None
+            and result.execution_smoke.passed
+        ) or (
+            result.repair_summary is not None
+            and result.repair_summary.succeeded
+        )
+    )
+    attempted = sum(
+        1 for result in results
+        if result.repair_summary is not None and result.repair_summary.attempted
+    )
+    succeeded = sum(
+        1 for result in results
+        if result.repair_summary is not None and result.repair_summary.succeeded
+    )
+    return (
+        f"first {first_passed}/{len(judged)}; "
+        f"after one repair {pass_after}/{len(judged)}; "
+        f"repair {attempted}/{succeeded}"
+    )
+
+
 def _execution_case_status(results: list[EvalResult]) -> str:
     smoke = [r.execution_smoke for r in results if r.execution_smoke is not None]
     if not smoke:
@@ -655,7 +942,7 @@ def _execution_case_status(results: list[EvalResult]) -> str:
     if not applicable:
         return "n/a"
     checker_errors = sum(1 for r in applicable if r.failure_type == "checker_error")
-    judged = [r for r in applicable if r.failure_type != "checker_error"]
+    judged = [r for r in smoke if _is_execution_judged(r)]
     if not judged:
         return f"checker_error {checker_errors}" if checker_errors else "n/a"
     passed = sum(1 for r in judged if r.passed)

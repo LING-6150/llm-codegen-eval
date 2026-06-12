@@ -1,8 +1,8 @@
 # llm-codegen-eval
 
-Evaluation harness for a Java LLM code-generation service, built to make A/B changes measurable instead of judged by demo screenshots or vibes.
+Two-tier evaluation harness for a Java LLM code-generation service, built to make A/B changes measurable instead of judged by demo screenshots or vibes.
 
-The harness runs benchmark prompts against a local Java service, captures generated code through SSE, evaluates outputs with deterministic structural checks, records raw JSON plus Markdown reports, and attributes tokens with per-run Prometheus counter windows.
+The harness runs benchmark prompts against a local Java service, captures generated code through SSE, evaluates outputs with deterministic structural checks plus optional browser execution smoke checks, records raw JSON plus Markdown reports, and attributes tokens with per-run Prometheus counter windows.
 
 ## Current Result
 
@@ -14,6 +14,7 @@ The latest citable result is the Redis-isolated context-pruning rerun from 2026-
 | Total tokens effectively flat/slightly lower: `323,192 -> 317,785` (`-1.7%`) | Directional | Same isolated run; do not headline as a large token saving |
 | CodeGen-stage input reduced by about `18%` | Verified within scope | Per-run token attribution; this is the stage pruning directly controls |
 | Pre-#24 `+12.3%` token increase | Invalidated | Caused by Redis chat-memory carryover, not pruning |
+| Execution smoke checker validates known browser fixtures | Verified diagnostic | Local good/bad HTML fixtures; not a benchmark result |
 
 Full claim audit: [RESULTS.md](RESULTS.md)
 
@@ -31,7 +32,7 @@ The most important finding was not a token percentage. The harness found that an
 
 - **Java generation service**: a local Spring Boot service on `localhost:8123`.
 - **Structural validation pass@k**: deterministic checks for generated HTML/multi-file artifacts, such as tag existence, counts, attributes, text, and regex expectations.
-- **Execution smoke validation**: optional browser-level checks for HTML/multi-file artifacts, reported separately from structural score.
+- **Execution smoke validation**: optional browser-level checks for HTML/multi-file artifacts, reported separately from structural score. This has been validated against known local browser fixtures.
 - **A/B configurations**: YAML configs compare Java service behavior, including context pruning on/off.
 - **Token attribution**: per-run Prometheus deltas for token, request, and prompt-size metrics.
 - **Reliability behavior**: infra retries, Java health checks, suspicious empty-generation detection, and circuit-breaker aborts.
@@ -39,6 +40,8 @@ The most important finding was not a token percentage. The harness found that an
 Important boundary: this is **structural-validation pass@k**, not HumanEval-style execution-based functional correctness.
 
 Execution smoke validation is also not full functional testing. It is a thin second layer for catching artifacts that satisfy structural checks but fail to load/build.
+
+Together, these form a **two-tier eval**: structural validation for deterministic benchmark scoring, and execution smoke validation for a narrow browser/build sanity layer. The two layers are reported separately and are not collapsed into one ambiguous pass number.
 
 ## Architecture
 

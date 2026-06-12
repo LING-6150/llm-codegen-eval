@@ -252,6 +252,7 @@ tests/                            offline unit tests
 - [Three-minute interview demo script](docs/demo-script.md)
 - [Canonical result audit](RESULTS.md)
 - [Redis memory carryover postmortem](docs/redis-memory-carryover-postmortem.md)
+- [Execution smoke fixture validation](docs/execution-smoke-fixture-validation.md)
 
 ## Roadmap
 

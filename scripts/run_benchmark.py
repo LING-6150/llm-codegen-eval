@@ -74,6 +74,7 @@ async def main(
     health_check: bool = True,
     capture_run_tokens: bool = False,
     clear_redis_memory: bool = True,
+    execution_smoke: bool = False,
 ):
     config_metadata = {}
     java_params = {}
@@ -191,6 +192,7 @@ async def main(
             cooldown_seconds=cooldown_seconds,
             health_check=health_check,
             capture_run_tokens=capture_run_tokens,
+            execution_smoke=execution_smoke,
         )
     except BatchRunAborted as e:
         results = e.results
@@ -231,6 +233,11 @@ async def main(
             "Cooldown seconds": str(cooldown_seconds),
             "Health check": str(health_check),
             "Run token attribution": str(capture_run_tokens),
+            "Execution smoke validation": str(execution_smoke),
+            "Execution smoke mode": (
+                "smoke-level browser/build validation; reported separately from structural score"
+                if execution_smoke else "disabled"
+            ),
             "Run token attribution mode": (
                 "Prometheus per-attempt counter delta; valid only for sequential runs "
                 "with no concurrent traffic on the same appId"
@@ -296,6 +303,10 @@ if __name__ == "__main__":
                         default=False, help="Capture per-run Prometheus token deltas")
     parser.add_argument("--no-capture-run-tokens", dest="capture_run_tokens", action="store_false",
                         help="Disable per-run token attribution (default)")
+    parser.add_argument("--execution-smoke", dest="execution_smoke", action="store_true",
+                        default=False, help="Run smoke-level execution validation when supported")
+    parser.add_argument("--no-execution-smoke", dest="execution_smoke", action="store_false",
+                        help="Disable execution smoke validation (default)")
     parser.add_argument("--agent", dest="agent", action="store_true",
                        default=True, help="Use Java Multi-Agent workflow (default)")
     parser.add_argument("--no-agent", dest="agent", action="store_false",
@@ -339,4 +350,5 @@ if __name__ == "__main__":
         health_check=args.health_check,
         capture_run_tokens=args.capture_run_tokens,
         clear_redis_memory=args.clear_redis_memory,
+        execution_smoke=args.execution_smoke,
     ))

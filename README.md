@@ -31,11 +31,14 @@ The most important finding was not a token percentage. The harness found that an
 
 - **Java generation service**: a local Spring Boot service on `localhost:8123`.
 - **Structural validation pass@k**: deterministic checks for generated HTML/multi-file artifacts, such as tag existence, counts, attributes, text, and regex expectations.
+- **Execution smoke validation**: optional browser-level checks for HTML/multi-file artifacts, reported separately from structural score.
 - **A/B configurations**: YAML configs compare Java service behavior, including context pruning on/off.
 - **Token attribution**: per-run Prometheus deltas for token, request, and prompt-size metrics.
 - **Reliability behavior**: infra retries, Java health checks, suspicious empty-generation detection, and circuit-breaker aborts.
 
 Important boundary: this is **structural-validation pass@k**, not HumanEval-style execution-based functional correctness.
+
+Execution smoke validation is also not full functional testing. It is a thin second layer for catching artifacts that satisfy structural checks but fail to load/build.
 
 ## Architecture
 
@@ -83,6 +86,7 @@ Corrected result: context pruning preserved structural pass@3 at 90%, reduced th
 - **Redis/MySQL memory isolation**: clears both persistence surfaces before each case run.
 - **Per-run token attribution**: captures Prometheus counter deltas around each attempt, including retry accounting and counter-reset guards.
 - **Mechanism attribution**: records CodeGen requests, prompt chars/request, and input tokens/request.
+- **Execution smoke layer**: optionally checks generated HTML/multi-file artifacts at browser level without changing structural pass@k semantics.
 
 ## Prerequisites
 
@@ -98,6 +102,14 @@ Install Python dependencies:
 ```bash
 uv sync
 ```
+
+For browser-based execution smoke checks, install the Playwright browser binary once:
+
+```bash
+uv run playwright install chromium
+```
+
+If the browser/checker environment is missing or fails to launch, the report records a `checker_error` instead of counting it as a generated-app execution failure.
 
 ## Quick Start
 
@@ -138,6 +150,17 @@ EVAL_MYSQL_PASSWORD='your-password' uv run python scripts/run_benchmark.py \
   --type multi_file \
   --runs-per-case 1 \
   --infra-retries 1
+```
+
+Single-config run with execution smoke validation enabled:
+
+```bash
+EVAL_MYSQL_PASSWORD='your-password' uv run python scripts/run_benchmark.py \
+  --name multi_file_execution_smoke \
+  --type multi_file \
+  --runs-per-case 1 \
+  --infra-retries 1 \
+  --execution-smoke
 ```
 
 Pruning A/B smoke run:
@@ -219,6 +242,7 @@ tests/                            offline unit tests
 - Structural checks do not replace execution-based functional correctness.
 - Small benchmark slices are directional; do not imply statistical significance.
 - Token attribution depends on metrics isolation and the Java service Prometheus counters.
+- Execution smoke checks require a local Playwright browser install; checker/environment failures are reported separately from generated-app failures.
 - Live Java/LLM benchmark runs are manual; offline unit tests cover harness logic.
 - Vue project quality claims require a live `vue_project` benchmark report.
 - This repo does not attempt multi-model leaderboards, LLM-as-judge scoring, or broad benchmark generalization.
@@ -231,6 +255,6 @@ tests/                            offline unit tests
 
 ## Roadmap
 
-- Add a lightweight build-level or browser-smoke execution check for generated artifacts.
+- Use execution smoke results to design a one-shot repair loop without blending first-shot and repaired pass rates.
 - Keep `RESULTS.md` as the canonical source of benchmark claims.
 - Avoid expanding case types until the structural-vs-execution boundary is tightened.

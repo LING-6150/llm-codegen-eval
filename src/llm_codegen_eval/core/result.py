@@ -5,6 +5,18 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from .case import ElementCheck
 
+
+class ExecutionSmokeResult(BaseModel):
+    """Smoke-level runtime/build validation kept separate from structural score."""
+
+    applicable: bool
+    passed: bool
+    failure_type: str = "not_applicable"
+    detail: Optional[str] = None
+    duration_ms: int = 0
+    checked_selectors: list[str] = Field(default_factory=list)
+
+
 class EvalResult(BaseModel):
     case_id: str
     passed: bool
@@ -28,6 +40,7 @@ class EvalResult(BaseModel):
     generated_code: str = ""
 
     error: Optional[str] = None
+    execution_smoke: Optional[ExecutionSmokeResult] = None
 
     run_at: datetime = Field(default_factory=datetime.now)
     run_config: dict = Field(default_factory=dict)

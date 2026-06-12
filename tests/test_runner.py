@@ -1,6 +1,7 @@
 import pytest
 
 from llm_codegen_eval.core.case import CodeType, Difficulty, EvalCase, ElementCheck
+from llm_codegen_eval.core.result import ExecutionSmokeResult
 from llm_codegen_eval.core.runner import run_case
 
 
@@ -66,3 +67,42 @@ async def test_run_case_marks_fast_empty_response_as_infra_error():
     assert result.score == 0
     assert result.error == "Infra error: empty response from Java service"
     assert result.generation_duration_ms == 17
+
+
+@pytest.mark.asyncio
+async def test_run_case_attaches_execution_smoke_when_enabled(monkeypatch):
+    async def fake_execution_smoke(code, case):
+        return ExecutionSmokeResult(
+            applicable=True,
+            passed=True,
+            failure_type="none",
+            checked_selectors=["h1"],
+        )
+
+    monkeypatch.setattr(
+        "llm_codegen_eval.core.runner.evaluate_execution_smoke",
+        fake_execution_smoke,
+    )
+
+    result = await run_case(make_case(), FakeClient(), execution_smoke=True)
+
+    assert result.passed is True
+    assert result.execution_smoke is not None
+    assert result.execution_smoke.passed is True
+    assert result.execution_smoke.checked_selectors == ["h1"]
+
+
+@pytest.mark.asyncio
+async def test_run_case_does_not_call_execution_smoke_when_disabled(monkeypatch):
+    async def unexpected_execution_smoke(code, case):
+        raise AssertionError("execution smoke should be opt-in")
+
+    monkeypatch.setattr(
+        "llm_codegen_eval.core.runner.evaluate_execution_smoke",
+        unexpected_execution_smoke,
+    )
+
+    result = await run_case(make_case(), FakeClient(), execution_smoke=False)
+
+    assert result.passed is True
+    assert result.execution_smoke is None

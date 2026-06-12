@@ -29,6 +29,7 @@ def generate_markdown(
     infra_errors = _infra_errors(results)
     non_infra_errors = _non_infra_errors(results)
     suspicious_empty = _suspicious_empty_generations(results)
+    execution_summary = _execution_summary(results)
 
     lines = []
 
@@ -69,6 +70,13 @@ def generate_markdown(
     lines.append(f"- **Avg duration**: {summary.get('avg_duration_ms', 0)/1000:.1f}s")
     if summary.get("avg_review_score") is not None:
         lines.append(f"- **Avg review score (Zhipu)**: {summary['avg_review_score']:.1f}/100")
+    if execution_summary["enabled"]:
+        lines.append(
+            f"- **Execution smoke pass rate**: "
+            f"{execution_summary['pass_rate']:.1%} "
+            f"({execution_summary['passed']}/{execution_summary['judged']} judged runs)"
+        )
+        lines.append(f"- **Execution checker errors**: {execution_summary['checker_errors']}")
     lines.append("")
 
     # === Per code_type ===
@@ -127,6 +135,10 @@ def generate_markdown(
             f"{avg_duration_ms/1000:.1f}s | {review_str} |"
         )
     lines.append("")
+
+    if execution_summary["enabled"]:
+        lines.extend(_format_execution_smoke_section(results))
+        lines.append("")
 
     # === Failures ===
     failures = stats.find_failures(results)
@@ -207,6 +219,8 @@ def generate_ab_report(
     generation_errors_b = len(_non_infra_errors(results_b))
     suspicious_a = len(_suspicious_empty_generations(results_a))
     suspicious_b = len(_suspicious_empty_generations(results_b))
+    execution_a = _execution_summary(results_a)
+    execution_b = _execution_summary(results_b)
     improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
     lines = []
@@ -282,10 +296,25 @@ def generate_ab_report(
         f"| Suspicious empty generations | {suspicious_a} | {suspicious_b} | "
         f"{_format_int_delta(suspicious_b - suspicious_a)} |"
     )
+    if execution_a["enabled"] or execution_b["enabled"]:
+        lines.append(
+            f"| Execution smoke pass rate | {_format_execution_rate(execution_a)} | "
+            f"{_format_execution_rate(execution_b)} | "
+            f"{_format_execution_rate_delta(execution_a, execution_b)} |"
+        )
+        lines.append(
+            f"| Execution checker errors | {execution_a['checker_errors']} | "
+            f"{execution_b['checker_errors']} | "
+            f"{_format_int_delta(execution_b['checker_errors'] - execution_a['checker_errors'])} |"
+        )
     lines.append("")
 
     if token_summary_a and token_summary_b:
         lines.extend(_format_token_summary(token_summary_a, token_summary_b, name_a, name_b))
+    lines.append("")
+
+    if execution_a["enabled"] or execution_b["enabled"]:
+        lines.extend(_format_ab_execution_smoke_section(results_a, results_b, cases, name_a, name_b))
         lines.append("")
 
     lines.append("## Improvements")
@@ -514,3 +543,131 @@ def _format_int(value: int) -> str:
 def _format_int_delta(value: int) -> str:
     sign = "+" if value >= 0 else "-"
     return f"{sign}{abs(value):,}"
+
+
+def _execution_summary(results: list[EvalResult]) -> dict[str, Any]:
+    smoke_results = [r.execution_smoke for r in results if r.execution_smoke is not None]
+    if not smoke_results:
+        return {
+            "enabled": False,
+            "total": 0,
+            "applicable": 0,
+            "judged": 0,
+            "passed": 0,
+            "failed": 0,
+            "checker_errors": 0,
+            "not_applicable": 0,
+            "pass_rate": 0.0,
+        }
+
+    applicable = [r for r in smoke_results if r.applicable]
+    checker_errors = [r for r in applicable if r.failure_type == "checker_error"]
+    judged = [r for r in applicable if r.failure_type != "checker_error"]
+    passed = [r for r in judged if r.passed]
+    return {
+        "enabled": True,
+        "total": len(smoke_results),
+        "applicable": len(applicable),
+        "judged": len(judged),
+        "passed": len(passed),
+        "failed": len(judged) - len(passed),
+        "checker_errors": len(checker_errors),
+        "not_applicable": len(smoke_results) - len(applicable),
+        "pass_rate": len(passed) / len(judged) if judged else 0.0,
+    }
+
+
+def _format_execution_rate(summary: dict[str, Any]) -> str:
+    if not summary["enabled"]:
+        return "-"
+    if summary["judged"] == 0:
+        return "n/a"
+    return f"{summary['pass_rate']:.1%} ({summary['passed']}/{summary['judged']})"
+
+
+def _format_execution_rate_delta(summary_a: dict[str, Any], summary_b: dict[str, Any]) -> str:
+    if not summary_a["enabled"] or not summary_b["enabled"]:
+        return "-"
+    if summary_a["judged"] == 0 or summary_b["judged"] == 0:
+        return "n/a"
+    return _format_percent_delta(summary_b["pass_rate"] - summary_a["pass_rate"])
+
+
+def _format_execution_smoke_section(results: list[EvalResult]) -> list[str]:
+    grouped = stats.results_by_case(results)
+    lines = [
+        "## Execution Smoke",
+        "",
+        "Smoke-level runtime/build validation is reported separately from structural score.",
+        "",
+        "| Case ID | Judged Runs | Passed | Checker Errors | App Failure Types |",
+        "|---------|-------------|--------|----------------|-------------------|",
+    ]
+    for case_id, case_results in grouped.items():
+        smoke = [r.execution_smoke for r in case_results if r.execution_smoke is not None]
+        applicable = [r for r in smoke if r.applicable]
+        checker_errors = [r for r in applicable if r.failure_type == "checker_error"]
+        judged = [r for r in applicable if r.failure_type != "checker_error"]
+        passed = [r for r in judged if r.passed]
+        failure_types = sorted({
+            r.failure_type
+            for r in judged
+            if not r.passed and r.failure_type
+        })
+        lines.append(
+            f"| {case_id} | {len(judged)}/{len(smoke)} | "
+            f"{len(passed)}/{len(judged)} | {len(checker_errors)} | "
+            f"{', '.join(failure_types) if failure_types else '-'} |"
+        )
+    return lines
+
+
+def _format_ab_execution_smoke_section(
+    results_a: list[EvalResult],
+    results_b: list[EvalResult],
+    cases: list[EvalCase],
+    name_a: str,
+    name_b: str,
+) -> list[str]:
+    grouped_a = stats.results_by_case(results_a)
+    grouped_b = stats.results_by_case(results_b)
+    lines = [
+        "## Execution Smoke",
+        "",
+        "Smoke-level runtime/build validation is reported separately from structural pass@k.",
+        "",
+        f"| Case ID | A: {name_a} | B: {name_b} |",
+        "|---------|------|------|",
+    ]
+    for case in cases:
+        lines.append(
+            f"| {case.case_id} | {_execution_case_status(grouped_a.get(case.case_id, []))} | "
+            f"{_execution_case_status(grouped_b.get(case.case_id, []))} |"
+        )
+    return lines
+
+
+def _execution_case_status(results: list[EvalResult]) -> str:
+    smoke = [r.execution_smoke for r in results if r.execution_smoke is not None]
+    if not smoke:
+        return "-"
+    applicable = [r for r in smoke if r.applicable]
+    if not applicable:
+        return "n/a"
+    checker_errors = sum(1 for r in applicable if r.failure_type == "checker_error")
+    judged = [r for r in applicable if r.failure_type != "checker_error"]
+    if not judged:
+        return f"checker_error {checker_errors}" if checker_errors else "n/a"
+    passed = sum(1 for r in judged if r.passed)
+    failure_types = sorted({
+        r.failure_type
+        for r in judged
+        if not r.passed and r.failure_type
+    })
+    suffix_parts = []
+    if failure_types:
+        suffix_parts.append(", ".join(failure_types))
+    if checker_errors:
+        suffix_parts.append(f"checker_error {checker_errors}")
+    suffix = f" ({'; '.join(suffix_parts)})" if suffix_parts else ""
+    return f"{passed}/{len(judged)}{suffix}"

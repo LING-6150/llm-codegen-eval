@@ -40,6 +40,7 @@ async def run_batch(
     cooldown_seconds: float = 0,
     health_check: bool = True,
     capture_run_tokens: bool = False,
+    execution_smoke: bool = False,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -100,7 +101,16 @@ async def run_batch(
                     except Exception as exc:
                         diagnostic_before = None
 
-                result = await run_case(case, client, agent=agent, java_params=java_params)
+                if execution_smoke:
+                    result = await run_case(
+                        case,
+                        client,
+                        agent=agent,
+                        java_params=java_params,
+                        execution_smoke=True,
+                    )
+                else:
+                    result = await run_case(case, client, agent=agent, java_params=java_params)
 
                 if capture_run_tokens:
                     try:

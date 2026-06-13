@@ -15,6 +15,7 @@ The latest citable result is the Redis-isolated context-pruning rerun from 2026-
 | CodeGen-stage input reduced by about `18%` | Verified within scope | Per-run token attribution; this is the stage pruning directly controls |
 | Pre-#24 `+12.3%` token increase | Invalidated | Caused by Redis chat-memory carryover, not pruning |
 | Execution smoke checker validates known browser fixtures | Verified diagnostic | Local good/bad HTML fixtures; not a benchmark result |
+| One-shot repair path validates on a deterministic fixture | Verified diagnostic | Fake client + real browser smoke; not a benchmark result |
 
 Full claim audit: [RESULTS.md](RESULTS.md)
 
@@ -33,6 +34,7 @@ The most important finding was not a token percentage. The harness found that an
 - **Java generation service**: a local Spring Boot service on `localhost:8123`.
 - **Structural validation pass@k**: deterministic checks for generated HTML/multi-file artifacts, such as tag existence, counts, attributes, text, and regex expectations.
 - **Execution smoke validation**: optional browser-level checks for HTML/multi-file artifacts, reported separately from structural score. This has been validated against known local browser fixtures.
+- **One-shot repair validation**: optional repair path uses execution-smoke feedback once, keeps first-shot results separate, and has been validated on a deterministic fixture.
 - **A/B configurations**: YAML configs compare Java service behavior, including context pruning on/off.
 - **Token attribution**: per-run Prometheus deltas for token, request, and prompt-size metrics.
 - **Reliability behavior**: infra retries, Java health checks, suspicious empty-generation detection, and circuit-breaker aborts.

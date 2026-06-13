@@ -117,3 +117,15 @@ def test_raw_run_spread_uses_first_shot_total_tokens_not_repair_tokens():
 
     assert spread["case_a"]["total_tokens"]["mean"] == pytest.approx(150)
     assert spread["case_a"]["total_tokens"]["stdev"] == pytest.approx(70.710678, rel=1e-5)
+
+
+def test_execution_judged_predicate_is_single_source():
+    """Guard Phase 2 invariant: the judged definition lives in exactly one place."""
+    import pathlib
+
+    src = pathlib.Path(__file__).resolve().parents[1] / "src" / "llm_codegen_eval"
+    hits = sum(
+        path.read_text().count('failure_type != "checker_error"')
+        for path in src.rglob("*.py")
+    )
+    assert hits == 1, f'expected single judged definition, found {hits}'

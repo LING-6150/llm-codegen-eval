@@ -131,7 +131,7 @@ def raw_run_spread_by_case(results: list[EvalResult]) -> dict[str, dict[str, Any
         ]
         smoke_judged = [
             smoke for smoke in smoke_results
-            if smoke is not None and smoke.applicable and smoke.failure_type != "checker_error"
+            if is_execution_judged(smoke)
         ]
         smoke_passed = [smoke for smoke in smoke_judged if smoke.passed]
 
@@ -159,6 +159,15 @@ def _mean_stdev(values: list[float | int]) -> dict[str, float]:
 
 def _has_first_shot_token_measurement(result: EvalResult) -> bool:
     return result.total_tokens > 0 or "token_summary" in result.run_config
+
+
+def is_execution_judged(smoke: Any) -> bool:
+    """Single source of truth for the execution-smoke judged set.
+
+    A run is judged only when smoke ran and produced an app-level verdict:
+    applicable and not a checker/infra error.
+    """
+    return bool(smoke is not None and smoke.applicable and smoke.failure_type != "checker_error")
 
 def stability_by_case(results: list[EvalResult]) -> dict[str, dict[str, Any]]:
     """Return per-case pass counts across repeated runs."""

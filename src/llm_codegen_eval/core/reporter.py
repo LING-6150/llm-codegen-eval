@@ -760,7 +760,7 @@ def _repair_summary(results: list[EvalResult]) -> dict[str, Any]:
 
 
 def _is_execution_judged(smoke: Any) -> bool:
-    return bool(smoke is not None and smoke.applicable and smoke.failure_type != "checker_error")
+    return stats.is_execution_judged(smoke)
 
 
 def _repair_judged_results(results: list[EvalResult]) -> list[EvalResult]:

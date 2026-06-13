@@ -327,6 +327,8 @@ def test_repair_generation_errors_are_reported_separately():
 
     assert "- **Execution smoke pass rate**: 0.0% (0/1 judged runs)" in report
     assert "- **Pass after one repair (includes one repair)**: 0.0% (0/1)" in report
-    assert "- **Repair attempts/successes**: 1/0" in report
+    # Generation/infra errors are excluded from the succeeded/attempted efficacy
+    # denominator and surfaced only via the generation-errors count.
+    assert "- **Repair attempts/successes**: 0/0" in report
     assert "- **Repair generation errors**: 1" in report
-    assert "| case_a | 1 | 0/1 | 1 | 0 | 1 | 0/1 | 0 | repair_generation_error |" in report
+    assert "| case_a | 1 | 0/1 | 0 | 0 | 1 | 0/1 | 0 | repair_generation_error |" in report

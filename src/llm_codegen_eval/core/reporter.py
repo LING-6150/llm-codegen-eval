@@ -681,7 +681,7 @@ def _repair_summary(results: list[EvalResult]) -> dict[str, Any]:
     )
     attempted = sum(
         1 for result in results
-        if result.repair_summary is not None and result.repair_summary.attempted
+        if _is_effective_repair_attempt(result.repair_summary)
     )
     succeeded = sum(
         1 for result in results
@@ -723,6 +723,20 @@ def _is_execution_judged(smoke: Any) -> bool:
 
 def _repair_judged_results(results: list[EvalResult]) -> list[EvalResult]:
     return [result for result in results if _is_execution_judged(result.execution_smoke)]
+
+
+def _is_effective_repair_attempt(summary: Any) -> bool:
+    """A genuine repair attempt that reached judging.
+
+    Generation/infra failures (``repair_generation_error``) are excluded so the
+    succeeded/attempted efficacy ratio is not diluted by infra noise; they are
+    surfaced separately via the generation-errors count.
+    """
+    return bool(
+        summary is not None
+        and summary.attempted
+        and summary.reason != "repair_generation_error"
+    )
 
 
 def _format_repair_pass_after(summary: dict[str, Any]) -> str:
@@ -808,7 +822,7 @@ def _format_repair_section(results: list[EvalResult]) -> list[str]:
         )
         attempted = sum(
             1 for result in case_results
-            if result.repair_summary is not None and result.repair_summary.attempted
+            if _is_effective_repair_attempt(result.repair_summary)
         )
         succeeded = sum(
             1 for result in case_results
@@ -921,7 +935,7 @@ def _repair_case_status(results: list[EvalResult]) -> str:
     )
     attempted = sum(
         1 for result in results
-        if result.repair_summary is not None and result.repair_summary.attempted
+        if _is_effective_repair_attempt(result.repair_summary)
     )
     succeeded = sum(
         1 for result in results

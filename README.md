@@ -45,6 +45,8 @@ Execution smoke validation is also not full functional testing. It is a thin sec
 
 Together, these form a **two-tier eval**: structural validation for deterministic benchmark scoring, and execution smoke validation for a narrow browser/build sanity layer. The two layers are reported separately and are not collapsed into one ambiguous pass number.
 
+For the precise definition of every report label (First-run vs any-of-N vs unbiased pass@1, execution smoke, repair, run spread) and the overclaim boundaries, see [docs/METRICS.md](docs/METRICS.md).
+
 ## Architecture
 
 ```text

@@ -14,7 +14,7 @@ from .metrics import (
     summarize_token_delta,
 )
 from .result import EvalResult
-from .runner import run_case
+from .runner import run_case, run_repair
 from ..clients.java_client import JavaServiceClient
 
 
@@ -41,6 +41,7 @@ async def run_batch(
     health_check: bool = True,
     capture_run_tokens: bool = False,
     execution_smoke: bool = False,
+    repair_on_execution_fail: bool = False,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -58,6 +59,8 @@ async def run_batch(
         raise ValueError("cooldown_seconds must be >= 0")
     if capture_run_tokens and concurrency != 1:
         raise ValueError("capture_run_tokens requires concurrency=1")
+    if repair_on_execution_fail and not execution_smoke:
+        raise ValueError("repair_on_execution_fail requires execution_smoke=True")
 
     if health_check and not await client.health():
         raise BatchRunAborted(
@@ -152,6 +155,17 @@ async def run_batch(
             assert result is not None
             if retry_token_summaries:
                 result.run_config["retry_token_summaries"] = retry_token_summaries
+
+            if repair_on_execution_fail:
+                await _maybe_attach_repair_summary(
+                    result,
+                    case,
+                    client,
+                    agent=agent,
+                    java_params=java_params,
+                    capture_run_tokens=capture_run_tokens,
+                )
+
             result.run_config.update({
                 "run_index": run_idx + 1,
                 "runs_per_case": runs_per_case,
@@ -262,6 +276,56 @@ def _attach_diagnostic_summary(
     result.total_tokens = int(summary.get("total", 0))
     result.run_config["token_summary"] = summary
     result.run_config["mechanism_summary"] = summarize_mechanism_delta(delta)
+
+
+async def _maybe_attach_repair_summary(
+    result: EvalResult,
+    case: EvalCase,
+    client: JavaServiceClient,
+    agent: bool,
+    java_params: dict | None,
+    capture_run_tokens: bool,
+) -> None:
+    repair_before = None
+    if capture_run_tokens:
+        try:
+            repair_before = await _capture_diagnostic_snapshot(client)
+        except Exception as exc:
+            result.run_config["repair_token_capture_error"] = str(exc)
+
+    repair_summary = await run_repair(
+        result,
+        case,
+        client,
+        agent=agent,
+        java_params=java_params,
+    )
+    result.repair_summary = repair_summary
+
+    if capture_run_tokens and repair_summary.attempted:
+        try:
+            repair_after = await _capture_diagnostic_snapshot(client)
+            _attach_repair_diagnostic_summary(result, repair_before, repair_after)
+        except Exception as exc:
+            result.run_config["repair_token_capture_error"] = str(exc)
+
+
+def _attach_repair_diagnostic_summary(
+    result: EvalResult,
+    before: DiagnosticSnapshot | None,
+    after: DiagnosticSnapshot,
+) -> None:
+    if result.repair_summary is None:
+        return
+    if before is None:
+        result.run_config["repair_token_capture_error"] = "missing before diagnostic snapshot"
+        return
+    if sum(after.tokens.values()) < sum(before.tokens.values()):
+        result.run_config["repair_token_capture_error"] = "counter reset/regression"
+        return
+
+    delta = diff_diagnostic_snapshots(before, after)
+    result.repair_summary.token_summary = summarize_token_delta(delta.tokens)
 
 def is_infra_error(result: EvalResult) -> bool:
     """Return true for transient provider/network errors worth rerunning."""

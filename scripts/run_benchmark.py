@@ -75,6 +75,7 @@ async def main(
     capture_run_tokens: bool = False,
     clear_redis_memory: bool = True,
     execution_smoke: bool = False,
+    repair_on_execution_fail: bool = False,
 ):
     config_metadata = {}
     java_params = {}
@@ -100,6 +101,8 @@ async def main(
         raise ValueError("--max-consecutive-infra-failures must be >= 0")
     if cooldown_seconds < 0:
         raise ValueError("--cooldown-seconds must be >= 0")
+    if repair_on_execution_fail and not execution_smoke:
+        raise ValueError("--repair-on-execution-fail requires --execution-smoke")
 
     # Load cases
     cases = load_cases(CASES_PATH)
@@ -193,6 +196,7 @@ async def main(
             health_check=health_check,
             capture_run_tokens=capture_run_tokens,
             execution_smoke=execution_smoke,
+            repair_on_execution_fail=repair_on_execution_fail,
         )
     except BatchRunAborted as e:
         results = e.results
@@ -237,6 +241,11 @@ async def main(
             "Execution smoke mode": (
                 "smoke-level browser/build validation; reported separately from structural score"
                 if execution_smoke else "disabled"
+            ),
+            "One-shot repair": str(repair_on_execution_fail),
+            "One-shot repair mode": (
+                "enabled for whitelisted execution smoke app failures"
+                if repair_on_execution_fail else "disabled"
             ),
             "Run token attribution mode": (
                 "Prometheus per-attempt counter delta; valid only for sequential runs "
@@ -307,6 +316,10 @@ if __name__ == "__main__":
                         default=False, help="Run smoke-level execution validation when supported")
     parser.add_argument("--no-execution-smoke", dest="execution_smoke", action="store_false",
                         help="Disable execution smoke validation (default)")
+    parser.add_argument("--repair-on-execution-fail", dest="repair_on_execution_fail", action="store_true",
+                        default=False, help="Attempt exactly one repair for whitelisted execution smoke app failures")
+    parser.add_argument("--no-repair-on-execution-fail", dest="repair_on_execution_fail", action="store_false",
+                        help="Disable one-shot execution-feedback repair (default)")
     parser.add_argument("--agent", dest="agent", action="store_true",
                        default=True, help="Use Java Multi-Agent workflow (default)")
     parser.add_argument("--no-agent", dest="agent", action="store_false",
@@ -351,4 +364,5 @@ if __name__ == "__main__":
         capture_run_tokens=args.capture_run_tokens,
         clear_redis_memory=args.clear_redis_memory,
         execution_smoke=args.execution_smoke,
+        repair_on_execution_fail=args.repair_on_execution_fail,
     ))

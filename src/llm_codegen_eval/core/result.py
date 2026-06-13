@@ -17,6 +17,20 @@ class ExecutionSmokeResult(BaseModel):
     checked_selectors: list[str] = Field(default_factory=list)
 
 
+class RepairSummary(BaseModel):
+    """One-shot repair result kept separate from first-shot scoring."""
+
+    attempted: bool
+    succeeded: bool
+    trigger_failure_type: Optional[str] = None
+    reason: Optional[str] = None
+    repaired_structural_passed: Optional[bool] = None
+    repaired_score: Optional[int] = None
+    repaired_execution_smoke: Optional[ExecutionSmokeResult] = None
+    token_summary: Optional[dict] = None
+    error: Optional[str] = None
+
+
 class EvalResult(BaseModel):
     case_id: str
     passed: bool
@@ -41,6 +55,7 @@ class EvalResult(BaseModel):
 
     error: Optional[str] = None
     execution_smoke: Optional[ExecutionSmokeResult] = None
+    repair_summary: Optional[RepairSummary] = None
 
     run_at: datetime = Field(default_factory=datetime.now)
     run_config: dict = Field(default_factory=dict)

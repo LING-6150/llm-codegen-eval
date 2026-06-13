@@ -108,7 +108,9 @@ def test_generate_ab_report_includes_summary_and_per_case_diff():
     assert "## Improvements" in report
     assert "## Regressions" in report
     assert "## Unstable Cases" in report
-    assert "pass@2" in report
+    assert "Structural any-of-2 pass rate" in report
+    assert "First-run structural pass rate" in report
+    assert "Structural pass@1 estimate (unbiased, all runs)" in report
     assert "| Infra retries used | 0 | 0 | +0 |" in report
     assert "| case_a | html |" in report
     assert "| case_b | html |" in report
@@ -237,7 +239,7 @@ def test_generate_ab_report_includes_execution_smoke_without_changing_structural
 
     report = generate_ab_report(results_a, results_b, cases, "baseline", "candidate")
 
-    assert "| pass@1 | 100.0% | 100.0% | +0.0 pp |" in report
+    assert "| First-run structural pass rate | 100.0% | 100.0% | +0.0 pp |" in report
     assert "| Execution smoke pass rate | 100.0% (1/1) | 0.0% (0/1) | -100.0 pp |" in report
     assert "## Execution Smoke" in report
     assert "reported separately from structural pass@k" in report
@@ -332,3 +334,46 @@ def test_repair_generation_errors_are_reported_separately():
     assert "- **Repair attempts/successes**: 0/0" in report
     assert "- **Repair generation errors**: 1" in report
     assert "| case_a | 1 | 0/1 | 0 | 0 | 1 | 0/1 | 0 | repair_generation_error |" in report
+
+
+def test_generate_markdown_adds_unbiased_pass1_and_raw_spread_for_repeated_runs():
+    cases = [make_case("case_a"), make_case("case_b")]
+    results = [
+        make_result("case_a", True, 100, 1),
+        make_result("case_a", False, 50, 2),
+        make_result("case_b", False, 40, 1),
+        make_result("case_b", True, 80, 2),
+    ]
+    results[0].total_tokens = 100
+    results[0].run_config["token_summary"] = {"total": 100}
+    results[1].total_tokens = 200
+    results[1].run_config["token_summary"] = {"total": 200}
+
+    report = generate_markdown(results, cases)
+
+    assert "- **Structural any-of-2 pass rate**: 100.0% (2/2 cases)" in report
+    assert "- **First-run structural pass rate**: 50.0% (1/2 cases)" in report
+    assert "- **Structural pass@1 estimate (unbiased, all runs)**: 50.0% (2/2 cases)" in report
+    assert "## Raw Run-To-Run Spread (descriptive, n=2)" in report
+    assert "First-shot token spread uses `EvalResult.total_tokens`; repair token cost stays in the repair section." in report
+    assert "| case_a | 75.0 +/- 35.4 | 1.0s +/- 0.0s | 150.0 +/- 70.7 | - |" in report
+
+
+def test_generate_markdown_single_run_avoids_duplicate_pass_rows():
+    cases = [make_case("case_a")]
+    report = generate_markdown([make_result("case_a", True, 100, 1)], cases)
+
+    assert "- **First-run structural pass rate**: 100.0% (1/1)" in report
+    assert "same as first-run structural pass rate for single-run reports" in report
+    assert "Structural any-of-1 pass rate" not in report
+
+
+def test_execution_smoke_report_wording_avoids_functional_correctness_claim():
+    cases = [make_case("case_a")]
+    result = with_execution(make_result("case_a", True, 100, 1), True)
+
+    report = generate_markdown([result], cases)
+    execution_section = report.split("## Execution Smoke", 1)[1].split("##", 1)[0]
+
+    assert "functional" not in execution_section.lower()
+    assert "correctness" not in execution_section.lower()

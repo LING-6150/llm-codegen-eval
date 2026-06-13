@@ -24,7 +24,9 @@ def generate_markdown(
     runs_per_case = max((len(v) for v in grouped_results.values()), default=1)
     pass_at_1 = stats.pass_at_k(results, 1)
     pass_at_k = stats.pass_at_k(results, runs_per_case)
+    pass1_estimate = stats.structural_pass_at_k_estimate(results, 1)
     stability = stats.stability_by_case(results)
+    spread = stats.raw_run_spread_by_case(results)
     infra_retries_used = _infra_retries_used(results)
     infra_errors = _infra_errors(results)
     non_infra_errors = _non_infra_errors(results)
@@ -51,16 +53,22 @@ def generate_markdown(
     lines.append("")
     if runs_per_case > 1:
         lines.append(
-            f"- **pass@{runs_per_case}**: {pass_at_k['pass_rate']:.1%} "
+            f"- **Structural any-of-{runs_per_case} pass rate**: {pass_at_k['pass_rate']:.1%} "
             f"({pass_at_k['passed_cases']}/{pass_at_k['total_cases']} cases)"
         )
         lines.append(
-            f"- **pass@1**: {pass_at_1['pass_rate']:.1%} "
+            f"- **First-run structural pass rate**: {pass_at_1['pass_rate']:.1%} "
             f"({pass_at_1['passed_cases']}/{pass_at_1['total_cases']} cases)"
+        )
+        lines.append(
+            f"- **Structural pass@1 estimate (unbiased, all runs)**: "
+            f"{_format_optional_percent(pass1_estimate['pass_rate'])} "
+            f"({pass1_estimate['estimated_cases']}/{pass1_estimate['total_cases']} cases)"
         )
         lines.append(f"- **Run-level pass rate**: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']} runs)")
     else:
-        lines.append(f"- **pass@1**: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
+        lines.append(f"- **First-run structural pass rate**: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
+        lines.append("- **Structural pass@1 estimate (unbiased, all runs)**: same as first-run structural pass rate for single-run reports")
     lines.append(f"- **Failed**: {summary.get('failed', 0)}")
     lines.append(f"- **Errored**: {summary.get('errored', 0)} (generation/network errors)")
     lines.append(f"- **Infra retries used**: {infra_retries_used}")
@@ -160,6 +168,10 @@ def generate_markdown(
         lines.extend(_format_repair_section(results))
         lines.append("")
 
+    if spread:
+        lines.extend(_format_run_spread_section(spread))
+        lines.append("")
+
     # === Failures ===
     failures = stats.find_failures(results)
     if failures:
@@ -225,6 +237,8 @@ def generate_ab_report(
     pass_b = stats.pass_at_k(results_b, k)
     pass1_a = stats.pass_at_k(results_a, 1)
     pass1_b = stats.pass_at_k(results_b, 1)
+    pass1_estimate_a = stats.structural_pass_at_k_estimate(results_a, 1)
+    pass1_estimate_b = stats.structural_pass_at_k_estimate(results_b, 1)
     stability_a = stats.stability_by_case(results_a)
     stability_b = stats.stability_by_case(results_b)
     pass_delta = pass_b["pass_rate"] - pass_a["pass_rate"]
@@ -258,7 +272,7 @@ def generate_ab_report(
 
     lines.append("## Winner Summary")
     lines.append("")
-    lines.append(f"- **pass@{k} delta (B - A)**: {_format_percent_delta(pass_delta)}")
+    lines.append(f"- **Structural any-of-{k} pass-rate delta (B - A)**: {_format_percent_delta(pass_delta)}")
     lines.append(f"- **Avg score delta (B - A)**: {score_delta:+.1f}")
     lines.append(f"- **Avg duration delta (B - A)**: {duration_delta_ms/1000:+.1f}s ({duration_delta_pct:+.1f}%)")
     if pass_delta > 0:
@@ -279,14 +293,30 @@ def generate_ab_report(
     lines.append("")
     lines.append("| Metric | A: " + name_a + " | B: " + name_b + " | Delta (B - A) |")
     lines.append("|--------|------|------|---------------|")
-    lines.append(
-        f"| pass@{k} | {pass_a['pass_rate']:.1%} | {pass_b['pass_rate']:.1%} | "
-        f"{_format_percent_delta(pass_b['pass_rate'] - pass_a['pass_rate'])} |"
-    )
     if k != 1:
         lines.append(
-            f"| pass@1 | {pass1_a['pass_rate']:.1%} | {pass1_b['pass_rate']:.1%} | "
+            f"| Structural any-of-{k} pass rate | {pass_a['pass_rate']:.1%} | {pass_b['pass_rate']:.1%} | "
+            f"{_format_percent_delta(pass_b['pass_rate'] - pass_a['pass_rate'])} |"
+        )
+        lines.append(
+            f"| First-run structural pass rate | {pass1_a['pass_rate']:.1%} | {pass1_b['pass_rate']:.1%} | "
             f"{_format_percent_delta(pass1_b['pass_rate'] - pass1_a['pass_rate'])} |"
+        )
+        lines.append(
+            f"| Structural pass@1 estimate (unbiased, all runs) | "
+            f"{_format_optional_percent(pass1_estimate_a['pass_rate'])} | "
+            f"{_format_optional_percent(pass1_estimate_b['pass_rate'])} | "
+            f"{_format_optional_percent_delta(pass1_estimate_a['pass_rate'], pass1_estimate_b['pass_rate'])} |"
+        )
+    else:
+        lines.append(
+            f"| First-run structural pass rate | {pass_a['pass_rate']:.1%} | {pass_b['pass_rate']:.1%} | "
+            f"{_format_percent_delta(pass_b['pass_rate'] - pass_a['pass_rate'])} |"
+        )
+        lines.append(
+            "| Structural pass@1 estimate (unbiased, all runs) | "
+            "same as first-run structural pass rate for single-run reports | "
+            "same as first-run structural pass rate for single-run reports | n/a |"
         )
     lines.append(
         f"| Run-level pass rate | {summary_a.get('pass_rate', 0):.1%} | "
@@ -599,6 +629,18 @@ def _format_int_delta(value: int) -> str:
     return f"{sign}{abs(value):,}"
 
 
+def _format_optional_percent(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.1%}"
+
+
+def _format_optional_percent_delta(a_value: float | None, b_value: float | None) -> str:
+    if a_value is None or b_value is None:
+        return "n/a"
+    return _format_percent_delta(b_value - a_value)
+
+
 def _execution_summary(results: list[EvalResult]) -> dict[str, Any]:
     smoke_results = [r.execution_smoke for r in results if r.execution_smoke is not None]
     if not smoke_results:
@@ -859,6 +901,39 @@ def _format_repair_section(results: list[EvalResult]) -> list[str]:
             f"| {case_id} | {len(judged)} | {first_passed}/{len(judged)} | "
             f"{attempted} | {succeeded} | {generation_errors} | {pass_after}/{len(judged)} | "
             f"{token_cost:,} | {', '.join(reasons) if reasons else '-'} |"
+        )
+    return lines
+
+
+def _format_run_spread_section(spread: dict[str, dict[str, Any]]) -> list[str]:
+    n_values = sorted({data["n"] for data in spread.values()})
+    n_label = str(n_values[0]) if len(n_values) == 1 else "mixed"
+    lines = [
+        f"## Raw Run-To-Run Spread (descriptive, n={n_label})",
+        "",
+        "Sample stdev is shown for repeated runs only. This is descriptive spread, not a significance test.",
+        "First-shot token spread uses `EvalResult.total_tokens`; repair token cost stays in the repair section.",
+        "",
+        "| Case ID | Score Mean +/- Stdev | Duration Mean +/- Stdev | First-Shot Tokens Mean +/- Stdev | Execution Smoke |",
+        "|---------|--------------------|-----------------------|-------------------------------|-----------------|",
+    ]
+    for case_id, data in spread.items():
+        score = data["score"]
+        duration = data["duration_ms"]
+        tokens = data["total_tokens"]
+        smoke = data["execution_smoke"]
+        token_text = (
+            f"{tokens['mean']:.1f} +/- {tokens['stdev']:.1f}"
+            if tokens is not None else "-"
+        )
+        smoke_text = (
+            f"{smoke['passed']}/{smoke['judged']} judged"
+            if smoke["enabled"] else "-"
+        )
+        lines.append(
+            f"| {case_id} | {score['mean']:.1f} +/- {score['stdev']:.1f} | "
+            f"{duration['mean']/1000:.1f}s +/- {duration['stdev']/1000:.1f}s | "
+            f"{token_text} | {smoke_text} |"
         )
     return lines
 

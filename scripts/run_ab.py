@@ -6,7 +6,9 @@ from datetime import datetime
 from pathlib import Path
 
 from llm_codegen_eval.clients.java_client import JavaServiceClient
-from llm_codegen_eval.core.batch_runner import BatchRunAborted, load_cases, run_batch, save_results
+from llm_codegen_eval.core.batch_runner import BatchRunAborted, run_batch
+from llm_codegen_eval.core.cases_io import load_cases
+from llm_codegen_eval.core.results_io import save_results
 from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config
 from llm_codegen_eval.core.filters import filter_cases_by_id, parse_case_ids
 from llm_codegen_eval.core.metrics import (

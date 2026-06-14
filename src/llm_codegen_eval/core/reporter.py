@@ -7,14 +7,16 @@ from typing import Any, Optional
 from .case import EvalCase
 from .result import EvalResult
 from . import stats
-from .batch_runner import is_infra_error
-from .metrics import TokenSummary
+from .failure_taxonomy import is_infra_error
+
+TokenSummary = dict[str, object]
 
 def generate_markdown(
     results: list[EvalResult],
     cases: list[EvalCase],
     config_name: str = "baseline",
-    config_details: Optional[dict] = None
+    config_details: Optional[dict] = None,
+    top_banner: Optional[str] = None,
 ) -> str:
     """Generate a comprehensive markdown report."""
 
@@ -39,6 +41,9 @@ def generate_markdown(
     # === Header ===
     lines.append(f"# Eval Report — {config_name}")
     lines.append("")
+    if top_banner:
+        lines.append(top_banner)
+        lines.append("")
     lines.append(f"**Run at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"**Total cases**: {len(grouped_results) or summary['total']}")
     if runs_per_case > 1:

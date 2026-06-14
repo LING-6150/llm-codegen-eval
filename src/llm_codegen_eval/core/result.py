@@ -52,6 +52,8 @@ class EvalResult(BaseModel):
     total_tokens: int = 0
 
     generated_code: str = ""
+    generated_code_truncated: bool = False
+    generated_artifact_path: Optional[str] = None
 
     error: Optional[str] = None
     execution_smoke: Optional[ExecutionSmokeResult] = None

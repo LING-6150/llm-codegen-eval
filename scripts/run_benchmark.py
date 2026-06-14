@@ -8,9 +8,9 @@ from datetime import datetime
 from llm_codegen_eval.core.batch_runner import (
     BatchRunAborted,
     run_batch,
-    load_cases,
-    save_results,
 )
+from llm_codegen_eval.core.cases_io import load_cases
+from llm_codegen_eval.core.results_io import save_results
 from llm_codegen_eval.core.reporter import generate_markdown, save_report
 from llm_codegen_eval.core.case import CodeType
 from llm_codegen_eval.core.config import java_request_params, load_run_config
@@ -275,11 +275,17 @@ async def main(
     print("SUMMARY")
     print("=" * 70)
     if runs_per_case > 1:
-        print(f"pass@{runs_per_case}:     {pass_k.get('pass_rate', 0):.1%} ({pass_k['passed_cases']}/{pass_k['total_cases']} cases)")
-        print(f"pass@1:     {pass_1.get('pass_rate', 0):.1%} ({pass_1['passed_cases']}/{pass_1['total_cases']} cases)")
-        print(f"Run pass:   {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']} runs)")
+        print(
+            f"Structural any-of-{runs_per_case} pass: "
+            f"{pass_k.get('pass_rate', 0):.1%} ({pass_k['passed_cases']}/{pass_k['total_cases']} cases)"
+        )
+        print(
+            f"First-run structural pass: "
+            f"{pass_1.get('pass_rate', 0):.1%} ({pass_1['passed_cases']}/{pass_1['total_cases']} cases)"
+        )
+        print(f"Run-level structural pass: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']} runs)")
     else:
-        print(f"pass@1:     {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
+        print(f"First-run structural pass: {summary.get('pass_rate', 0):.1%} ({summary['passed']}/{summary['total']})")
     print(f"Avg score:  {summary.get('avg_score', 0):.1f}/100")
     print(f"Avg duration: {summary.get('avg_duration_ms', 0)/1000:.1f}s")
     if summary.get("avg_review_score") is not None:

@@ -1,10 +1,11 @@
 """Batch runner: run multiple eval cases and collect results."""
 
 import asyncio
-import json
 from pathlib import Path
 
 from .case import EvalCase
+from .cases_io import load_cases
+from .failure_taxonomy import is_infra_error
 from .metrics import (
     DiagnosticSnapshot,
     diff_diagnostic_snapshots,
@@ -221,39 +222,6 @@ async def run_batch(
 
     return results
 
-def load_cases(cases_path: Path) -> list[EvalCase]:
-    """Load EvalCases from a JSON file."""
-    with open(cases_path, encoding="utf-8") as f:
-        data = json.load(f)
-    return [EvalCase(**c) for c in data]
-
-def save_results(
-    results: list[EvalResult],
-    output_path: Path
-):
-    """Save raw results as JSON for later analysis."""
-    output_path.parent.mkdir(exist_ok=True, parents=True)
-
-    serialized = []
-    for r in results:
-        d = r.model_dump(mode="json")
-        # Truncate generated_code in saved JSON to keep file size manageable
-        if d.get("generated_code") and len(d["generated_code"]) > 2000:
-            d["generated_code"] = d["generated_code"][:2000] + "... [truncated]"
-        serialized.append(d)
-
-    output_path.write_text(
-        json.dumps(serialized, indent=2, ensure_ascii=False, default=str),
-        encoding="utf-8"
-    )
-
-def load_results(results_path: Path) -> list[EvalResult]:
-    """Load raw EvalResult JSON from a previous benchmark run."""
-    with open(results_path, encoding="utf-8") as f:
-        data = json.load(f)
-    return [EvalResult(**r) for r in data]
-
-
 async def _capture_diagnostic_snapshot(client: JavaServiceClient) -> DiagnosticSnapshot:
     text = await fetch_prometheus_metrics(client.base_url)
     return extract_diagnostic_snapshot(text, app_id=client.app_id)
@@ -326,28 +294,3 @@ def _attach_repair_diagnostic_summary(
 
     delta = diff_diagnostic_snapshots(before, after)
     result.repair_summary.token_summary = summarize_token_delta(delta.tokens)
-
-def is_infra_error(result: EvalResult) -> bool:
-    """Return true for transient provider/network errors worth rerunning."""
-    if not result.error:
-        return False
-
-    error = result.error.lower()
-    transient_markers = [
-        "remote host terminated",
-        "handshake",
-        "tls",
-        "i/o error",
-        "timeout",
-        "timed out",
-        "429",
-        "too many requests",
-        "connection reset",
-        "connection refused",
-        "connection aborted",
-        "temporarily unavailable",
-        "produced empty code stream",
-        "returned empty code stream",
-        "empty response from java service",
-    ]
-    return any(marker in error for marker in transient_markers)

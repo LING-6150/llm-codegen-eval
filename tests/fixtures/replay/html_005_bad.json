@@ -1,0 +1,7 @@
+{
+  "case_id": "html_005",
+  "code_type": "html",
+  "expected_structural_passed": false,
+  "expected_execution_smoke_passed": false,
+  "generated_code": "<!doctype html><html><body><p>Plain page without the required portfolio structure.</p></body></html>"
+}

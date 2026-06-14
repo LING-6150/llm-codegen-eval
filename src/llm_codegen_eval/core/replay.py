@@ -10,22 +10,11 @@ from .case import CodeType, EvalCase
 from .result import EvalResult
 from .results_io import TRUNCATION_MARKER, load_results
 from .reporter import generate_markdown
-from ..evaluators.base import BaseEvaluator
-from ..evaluators.html_eval import HtmlEvaluator
-from ..evaluators.vue_eval import VueEvaluator
-from ..evaluators.execution_smoke import evaluate_execution_smoke
 
 
 REPLAY_BANNER = (
     "REPLAY REPORT - re-rendered from saved raw results, not a live benchmark run."
 )
-
-_EVALUATORS: dict[CodeType, type[BaseEvaluator]] = {
-    CodeType.HTML: HtmlEvaluator,
-    CodeType.MULTI_FILE: HtmlEvaluator,
-    CodeType.VUE_PROJECT: VueEvaluator,
-}
-
 
 @dataclass(frozen=True)
 class ReplayArtifact:
@@ -96,11 +85,13 @@ async def replay_artifacts(
             raise ValueError(
                 f"Replay artifact {artifact.case_id} code_type={artifact.code_type.value} "
                 f"does not match case code_type={case.code_type.value}"
-            )
+        )
         _assert_complete_generated_code(artifact.generated_code, context=artifact.case_id)
-        evaluator = _EVALUATORS[case.code_type]()
+        evaluator = _evaluator_for(case.code_type)
         result = await evaluator.evaluate(artifact.generated_code, case)
         if execution_smoke:
+            from ..evaluators.execution_smoke import evaluate_execution_smoke
+
             result.execution_smoke = await evaluate_execution_smoke(
                 artifact.generated_code,
                 case,
@@ -148,3 +139,15 @@ def _assert_complete_generated_code(generated_code: str, context: str) -> None:
         raise ValueError(f"{context} has no generated_code for replay")
     if generated_code.endswith(TRUNCATION_MARKER):
         raise ValueError(f"{context} generated_code is truncated and cannot be replayed")
+
+
+def _evaluator_for(code_type: CodeType):
+    from ..evaluators.html_eval import HtmlEvaluator
+    from ..evaluators.vue_eval import VueEvaluator
+
+    evaluators = {
+        CodeType.HTML: HtmlEvaluator,
+        CodeType.MULTI_FILE: HtmlEvaluator,
+        CodeType.VUE_PROJECT: VueEvaluator,
+    }
+    return evaluators[code_type]()

@@ -78,8 +78,15 @@ def test_report_only_replay_renders_banner_and_metadata_without_live_calls(tmp_p
     assert "**Replay mode**: report-only" in report
     assert "**Live Java calls**: False" in report
     assert "**Provider calls**: False" in report
-    assert "functional correctness" not in report.lower()
-    assert "new benchmark result" not in report.lower()
+    forbidden_wording = [
+        "functional correctness",
+        "new benchmark result",
+        "model improved",
+        "quality regression",
+        "token savings",
+    ]
+    for phrase in forbidden_wording:
+        assert phrase not in report.lower()
 
 
 def test_results_io_and_replay_import_no_live_modules():
@@ -93,6 +100,10 @@ def test_results_io_and_replay_import_no_live_modules():
         "llm_codegen_eval.core.metrics",
         "llm_codegen_eval.core.runner",
         "llm_codegen_eval.core.preflight",
+        "llm_codegen_eval.evaluators.html_eval",
+        "llm_codegen_eval.evaluators.vue_eval",
+        "llm_codegen_eval.evaluators.execution_smoke",
+        "playwright.async_api",
     ]:
         sys.modules.pop(module_name, None)
 
@@ -104,6 +115,10 @@ def test_results_io_and_replay_import_no_live_modules():
     assert "llm_codegen_eval.core.metrics" not in sys.modules
     assert "llm_codegen_eval.core.runner" not in sys.modules
     assert "llm_codegen_eval.core.preflight" not in sys.modules
+    assert "llm_codegen_eval.evaluators.html_eval" not in sys.modules
+    assert "llm_codegen_eval.evaluators.vue_eval" not in sys.modules
+    assert "llm_codegen_eval.evaluators.execution_smoke" not in sys.modules
+    assert "playwright.async_api" not in sys.modules
 
 
 def test_save_results_writes_structured_truncation_metadata(tmp_path: Path):

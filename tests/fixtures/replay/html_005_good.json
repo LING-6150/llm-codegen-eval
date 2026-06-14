@@ -1,0 +1,7 @@
+{
+  "case_id": "html_005",
+  "code_type": "html",
+  "expected_structural_passed": true,
+  "expected_execution_smoke_passed": true,
+  "generated_code": "<!doctype html><html><head><title>Portfolio</title><style>@media (max-width: 600px) { body { font-size: 16px; } }</style></head><body><nav><a href=\"#about\">About</a></nav><main><h1>Jane Portfolio</h1><img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACw=\" alt=\"Portrait\"><section id=\"about\">Hello, my name is Jane and this is my bio introduction.</section><section>Projects and skills from my portfolio work.</section><a href=\"mailto:jane@example.com\">Contact</a></main></body></html>"
+}

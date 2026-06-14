@@ -3,9 +3,10 @@
 import argparse
 from pathlib import Path
 
-from llm_codegen_eval.core.batch_runner import load_cases, load_results
+from llm_codegen_eval.core.cases_io import load_cases
 from llm_codegen_eval.core.config import load_run_config
 from llm_codegen_eval.core.reporter import generate_ab_report, save_report
+from llm_codegen_eval.core.results_io import load_results
 
 CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
 

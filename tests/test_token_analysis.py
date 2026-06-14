@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from llm_codegen_eval.core.batch_runner import load_results
+from llm_codegen_eval.core.results_io import load_results
 from llm_codegen_eval.core.result import EvalResult
 from llm_codegen_eval.core.token_analysis import (
     analyze_token_attribution,

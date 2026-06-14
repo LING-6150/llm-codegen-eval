@@ -1,7 +1,8 @@
 from pathlib import Path
 import json
 
-from llm_codegen_eval.core.batch_runner import is_infra_error, load_results, save_results
+from llm_codegen_eval.core.failure_taxonomy import is_infra_error
+from llm_codegen_eval.core.results_io import load_results, save_results
 from llm_codegen_eval.core.result import EvalResult, ExecutionSmokeResult, RepairSummary
 
 

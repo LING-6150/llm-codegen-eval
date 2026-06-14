@@ -8,9 +8,9 @@ from datetime import datetime
 from llm_codegen_eval.core.batch_runner import (
     BatchRunAborted,
     run_batch,
-    load_cases,
-    save_results,
 )
+from llm_codegen_eval.core.cases_io import load_cases
+from llm_codegen_eval.core.results_io import save_results
 from llm_codegen_eval.core.reporter import generate_markdown, save_report
 from llm_codegen_eval.core.case import CodeType
 from llm_codegen_eval.core.config import java_request_params, load_run_config

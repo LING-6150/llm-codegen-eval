@@ -16,6 +16,7 @@ The latest citable result is the Redis-isolated context-pruning rerun from 2026-
 | Pre-#24 `+12.3%` token increase | Invalidated | Caused by Redis chat-memory carryover, not pruning |
 | Execution smoke checker validates known browser fixtures | Verified diagnostic | Local good/bad HTML fixtures; not a benchmark result |
 | One-shot repair path validates on a deterministic fixture | Verified diagnostic | Fake client + real browser smoke; not a benchmark result |
+| Replay / fixture mode validates offline report and evaluator paths | Verified diagnostic | Raw report replay + complete-artifact fixtures; not a benchmark result |
 
 Full claim audit: [RESULTS.md](RESULTS.md)
 
@@ -35,6 +36,7 @@ The most important finding was not a token percentage. The harness found that an
 - **Structural validation pass@k**: deterministic checks for generated HTML/multi-file artifacts, such as tag existence, counts, attributes, text, and regex expectations.
 - **Execution smoke validation**: optional browser-level checks for HTML/multi-file artifacts, reported separately from structural score. This has been validated against known local browser fixtures.
 - **One-shot repair validation**: optional repair path uses execution-smoke feedback once, keeps first-shot results separate, and has been validated on a deterministic fixture.
+- **Replay / fixture mode**: offline report replay from saved raw JSON plus complete-artifact fixture replay, with no live Java/provider/MySQL/Redis/Prometheus calls.
 - **A/B configurations**: YAML configs compare Java service behavior, including context pruning on/off.
 - **Token attribution**: per-run Prometheus deltas for token, request, and prompt-size metrics.
 - **Reliability behavior**: infra retries, Java health checks, suspicious empty-generation detection, and circuit-breaker aborts.
@@ -94,6 +96,7 @@ Corrected result: context pruning preserved structural pass@3 at 90%, reduced th
 - **Per-run token attribution**: captures Prometheus counter deltas around each attempt, including retry accounting and counter-reset guards.
 - **Mechanism attribution**: records CodeGen requests, prompt chars/request, and input tokens/request.
 - **Execution smoke layer**: optionally checks generated HTML/multi-file artifacts at browser level without changing structural pass@k semantics.
+- **Offline replay mode**: re-renders saved raw JSON reports and replays complete fixture artifacts under tests that prove no live service/provider/cleanup path is called.
 
 ## Prerequisites
 
@@ -260,9 +263,11 @@ tests/                            offline unit tests
 - [Canonical result audit](RESULTS.md)
 - [Redis memory carryover postmortem](docs/redis-memory-carryover-postmortem.md)
 - [Execution smoke fixture validation](docs/execution-smoke-fixture-validation.md)
+- [Replay and fixture mode](docs/replay-fixture-mode.md)
 
 ## Roadmap
 
-- Use execution smoke results to design a one-shot repair loop without blending first-shot and repaired pass rates.
+- Add optional full-artifact sidecars for replaying real live-run outputs without storing large code payloads in raw JSON.
+- Continue refining failure taxonomy so reports identify which layer failed.
 - Keep `RESULTS.md` as the canonical source of benchmark claims.
 - Avoid expanding case types until the structural-vs-execution boundary is tightened.

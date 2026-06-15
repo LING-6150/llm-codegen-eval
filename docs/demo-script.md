@@ -12,7 +12,8 @@ This script is for a concise walkthrough of the eval harness and the Redis chat-
 
 Latest citable result:
 
-- Two-tier eval is now wired and fixture-validated: structural checks plus browser execution smoke validation.
+- Two-tier eval is wired and fixture-validated: structural checks plus browser execution smoke validation.
+- The harness now includes replay/fixture mode and failure taxonomy diagnostics for reproducibility and layer-specific failure diagnosis.
 - Structural pass@3 preserved at `90.0% -> 90.0%`.
 - Total tokens were effectively flat/slightly lower after memory isolation (`-1.7%`).
 - CodeGen-stage input tokens decreased by about `18%`.
@@ -36,6 +37,7 @@ Talking points:
 - `cases.json` is the source of truth for prompts and deterministic structural checks.
 - These are structural-validation checks, not HumanEval-style unit-test execution.
 - The harness now has a second, smoke-level browser tier for load/build sanity; it is reported separately from structural pass@k.
+- Reports now include a failure taxonomy section that says whether a red run is infra, generation, structural, execution-smoke, checker, repair, or replay related.
 - `RESULTS.md` is the canonical audit table for verified, directional, invalidated, and legacy claims.
 
 ## 0:30-1:15 - Explain The Harness
@@ -110,7 +112,7 @@ Use this wording:
 
 Say:
 
-> The main engineering lesson is that LLM evals need reliability work too. This is a two-tier harness now: deterministic structural validation plus browser execution smoke validation. The smoke layer is useful for catching load/build failures, but it is not full functional correctness. What I can claim is that the harness caught a contaminated baseline, traced it to a product bug, and re-established a trustworthy measurement.
+> The main engineering lesson is that LLM evals need reliability work too. This is a two-tier harness now: deterministic structural validation plus browser execution smoke validation, with replay fixtures and failure taxonomy so the harness itself is testable. The smoke layer is useful for catching load/build failures, but it is not full functional correctness. What I can claim is that the harness caught a contaminated baseline, traced it to a product bug, and re-established a trustworthy measurement.
 
 Do not claim:
 
@@ -120,3 +122,4 @@ Do not claim:
 - Do not claim the invalidated `+12.3%` token increase as a pruning result.
 - Do not headline `-1.7%` total tokens as a large token saving.
 - Do not claim the observed pass@1/run-level improvement as established without arm-order-randomized confirmation.
+- Do not describe failure taxonomy as root-cause proof; it is a read-only diagnostic classification.

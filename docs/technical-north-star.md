@@ -88,11 +88,15 @@ Every important run should leave enough evidence to inspect or replay the evalua
 - repair result when applicable;
 - failure category.
 
-Long-term target: a replay mode that re-runs evaluator and report logic from saved artifacts without calling the Java service or an LLM provider.
+Current capability: report-only replay and complete-artifact fixture replay can run without calling the Java service or an LLM provider.
+
+Future extension: optional full-artifact sidecars could make real live-run outputs replayable without storing large generated-code payloads in raw JSON.
 
 ## Ideal Phases
 
 ### Phase 1: Execution Smoke Layer
+
+Status: completed.
 
 Acceptance:
 
@@ -104,6 +108,8 @@ Acceptance:
 This is the highest-ROI next improvement.
 
 ### Phase 2: One-Shot Repair
+
+Status: completed.
 
 Acceptance:
 
@@ -117,6 +123,8 @@ This is the main agentic-codegen improvement. It is only valuable after Phase 1 
 
 ### Phase 3: Pass@k And Variance Hygiene
 
+Status: completed.
+
 Acceptance:
 
 - HumanEval-style unbiased pass@k estimation is used only where it matches the measured layer.
@@ -126,6 +134,8 @@ Acceptance:
 Important: do not imply HumanEval-style functional correctness unless the measured signal is execution-based.
 
 ### Phase 4: Replay / Fixture Mode
+
+Status: completed.
 
 Acceptance:
 
@@ -137,6 +147,8 @@ This is what turns scripts into an eval platform.
 
 ### Phase 5: Failure Taxonomy
 
+Status: completed.
+
 Acceptance:
 
 - Reports consistently distinguish infra failures, provider/model failures, empty generations, structural failures, execution failures, checker failures, repaired successes, and repair failures.
@@ -145,6 +157,8 @@ Acceptance:
 The point is diagnosis, not just scoring.
 
 ### Phase 6: Documentation And Release
+
+Status: in progress.
 
 Acceptance:
 

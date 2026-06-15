@@ -174,6 +174,25 @@ def test_generate_ab_report_distinguishes_infra_and_generation_errors():
     assert "| case_b | html | ⚠️ | ❌ | 0/1 | 0/1 | generation 1 | - | 0 | 0 | +50.0 | +0.0s (+0.0%) |" in report
 
 
+def test_generate_ab_report_includes_failure_taxonomy_summary():
+    cases = [make_case("case_a"), make_case("case_b")]
+    results_a = [
+        make_error_result("case_a", "Workflow error: Remote host terminated the handshake"),
+        with_execution(make_result("case_b", True, 100, 1), False, "console_error"),
+    ]
+    results_b = [
+        make_result("case_a", True, 100, 1),
+        make_result("case_b", True, 100, 1),
+    ]
+
+    report = generate_ab_report(results_a, results_b, cases, "baseline", "candidate")
+
+    assert "## Failure Taxonomy Summary" in report
+    assert "| infra | network_or_provider | 1 | 0 | -1 | no | yes |" in report
+    assert "| execution_smoke | console_error | 1 | 0 | -1 | yes | no |" in report
+    assert "| passed | passed | 0 | 2 | +2 | yes | no |" in report
+
+
 def test_generate_ab_report_flags_suspicious_empty_generations():
     cases = [make_case("case_a")]
     results_a = [make_result("case_a", True, 90, 1)]
@@ -230,6 +249,42 @@ def test_generate_markdown_includes_separate_execution_smoke_section():
     assert "reported separately from structural score" in report
     assert "| case_a | 1/1 | 1/1 | 0 | - |" in report
     assert "| case_b | 1/1 | 0/1 | 0 | console_error |" in report
+
+
+def test_generate_markdown_includes_failure_taxonomy_summary_and_details():
+    cases = [make_case("case_a"), make_case("case_b"), make_case("case_c")]
+    results = [
+        make_result("case_a", True, 100, 1),
+        with_execution(make_result("case_b", True, 100, 1), False, "console_error", "boom"),
+        make_error_result("case_c", "Workflow error: Remote host terminated the handshake"),
+    ]
+
+    report = generate_markdown(results, cases)
+
+    assert "## Failure Taxonomy Summary" in report
+    assert "| execution_smoke | console_error | 1 | yes | no |" in report
+    assert "| infra | network_or_provider | 1 | no | yes |" in report
+    assert "| passed | passed | 1 | yes | no |" in report
+    assert "### Failure Taxonomy Details" in report
+    assert "| case_b | 1 | yes | execution_smoke | console_error | console_error | repair_not_attempted |" in report
+
+
+def test_failure_taxonomy_report_wording_avoids_overclaim_terms():
+    cases = [make_case("case_a")]
+    results = [with_execution(make_result("case_a", True, 100, 1), False, "console_error")]
+
+    report = generate_markdown(results, cases)
+    taxonomy_section = report.split("## Failure Taxonomy Summary", 1)[1].split("## By Code Type", 1)[0]
+
+    forbidden = [
+        "root cause",
+        "statistically significant",
+        "model regression",
+        "functional correctness",
+        "repair improved pass@k",
+    ]
+    for phrase in forbidden:
+        assert phrase not in taxonomy_section.lower()
 
 
 def test_generate_ab_report_includes_execution_smoke_without_changing_structural_summary():

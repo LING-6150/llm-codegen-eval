@@ -7,7 +7,12 @@ from typing import Any, Optional
 from .case import EvalCase
 from .result import EvalResult
 from . import stats
-from .failure_taxonomy import is_infra_error
+from .failure_taxonomy import (
+    classify_first_shot,
+    classify_repair,
+    is_infra_error,
+    is_suspicious_empty_generation,
+)
 
 TokenSummary = dict[str, object]
 
@@ -35,6 +40,7 @@ def generate_markdown(
     suspicious_empty = _suspicious_empty_generations(results)
     execution_summary = _execution_summary(results)
     repair_summary = _repair_summary(results)
+    taxonomy_summary = _failure_taxonomy_summary(results)
 
     lines = []
 
@@ -106,6 +112,9 @@ def generate_markdown(
         )
         lines.append(f"- **Repair generation errors**: {repair_summary['generation_errors']}")
         lines.append(f"- **Repair token cost**: {repair_summary['token_cost']:,}")
+    lines.append("")
+
+    lines.extend(_format_failure_taxonomy_section(results, taxonomy_summary))
     lines.append("")
 
     # === Per code_type ===
@@ -190,7 +199,7 @@ def generate_markdown(
             if r.error:
                 lines.append(f"**Error type**: {_error_type(r)}")
                 lines.append(f"**Error**: `{r.error[:200]}`")
-            elif _is_suspicious_empty_generation(r):
+            elif is_suspicious_empty_generation(r):
                 lines.append("**Error type**: suspicious-empty-generation")
                 lines.append("**Error**: empty code with near-zero generation duration")
             if r.required_failed:
@@ -394,6 +403,9 @@ def generate_ab_report(
         )
     lines.append("")
 
+    lines.extend(_format_ab_failure_taxonomy_section(results_a, results_b, name_a, name_b))
+    lines.append("")
+
     if token_summary_a and token_summary_b:
         lines.extend(_format_token_summary(token_summary_a, token_summary_b, name_a, name_b))
     lines.append("")
@@ -477,26 +489,16 @@ def _non_infra_errors(results: list[EvalResult]) -> list[EvalResult]:
 
 
 def _suspicious_empty_generations(results: list[EvalResult]) -> list[EvalResult]:
-    return [r for r in results if _is_suspicious_empty_generation(r)]
-
-
-def _is_suspicious_empty_generation(result: EvalResult) -> bool:
-    return (
-        not result.passed
-        and result.score == 0
-        and not result.error
-        and result.generation_duration_ms < 1000
-        and not result.generated_code.strip()
-    )
+    return [r for r in results if is_suspicious_empty_generation(r)]
 
 
 def _has_error_or_suspicious(results: list[EvalResult]) -> bool:
-    return any(r.error or _is_suspicious_empty_generation(r) for r in results)
+    return any(r.error or is_suspicious_empty_generation(r) for r in results)
 
 
 def _error_type(result: EvalResult) -> str:
     if not result.error:
-        if _is_suspicious_empty_generation(result):
+        if is_suspicious_empty_generation(result):
             return "suspicious-empty-generation"
         return "-"
     if is_infra_error(result):
@@ -519,6 +521,98 @@ def _error_summary(results: list[EvalResult]) -> str:
     if suspicious_count:
         parts.append(f"suspicious empty {suspicious_count}")
     return ", ".join(parts)
+
+
+def _failure_taxonomy_summary(results: list[EvalResult]) -> dict[tuple[str, str], dict[str, Any]]:
+    summary: dict[tuple[str, str], dict[str, Any]] = {}
+    for result in results:
+        classification = classify_first_shot(result)
+        key = (classification.layer, classification.category)
+        if key not in summary:
+            summary[key] = {
+                "layer": classification.layer,
+                "category": classification.category,
+                "count": 0,
+                "counts_as_model_quality": classification.counts_as_model_quality,
+                "retryable": classification.retryable,
+            }
+        summary[key]["count"] += 1
+    return summary
+
+
+def _format_failure_taxonomy_section(
+    results: list[EvalResult],
+    taxonomy_summary: dict[tuple[str, str], dict[str, Any]],
+) -> list[str]:
+    lines = [
+        "## Failure Taxonomy Summary",
+        "",
+        "Diagnostic classification is read-only and does not change structural pass@k, execution-smoke, repair, or token metrics.",
+        "",
+        "| Layer | Category | Count | Counts As Model Quality? | Retryable? |",
+        "|-------|----------|-------|--------------------------|------------|",
+    ]
+    for _, row in sorted(taxonomy_summary.items(), key=lambda item: (item[0][0], item[0][1])):
+        lines.append(
+            f"| {row['layer']} | {row['category']} | {row['count']} | "
+            f"{_yes_no(row['counts_as_model_quality'])} | {_yes_no(row['retryable'])} |"
+        )
+
+    lines.append("")
+    lines.append("### Failure Taxonomy Details")
+    lines.append("")
+    lines.append("| Case ID | Run | Structural Pass | Primary Layer | Primary Category | Execution Smoke Category | Repair Category |")
+    lines.append("|---------|-----|-----------------|---------------|------------------|--------------------------|-----------------|")
+    for result in results:
+        classification = classify_first_shot(result)
+        repair = classify_repair(result.repair_summary)
+        smoke_category = (
+            result.execution_smoke.failure_type
+            if result.execution_smoke is not None
+            else "-"
+        )
+        run_index = result.run_config.get("run_index", "-")
+        lines.append(
+            f"| {result.case_id} | {run_index} | {_yes_no(result.passed)} | "
+            f"{classification.layer} | {classification.category} | {smoke_category} | {repair.category} |"
+        )
+    return lines
+
+
+def _format_ab_failure_taxonomy_section(
+    results_a: list[EvalResult],
+    results_b: list[EvalResult],
+    name_a: str,
+    name_b: str,
+) -> list[str]:
+    summary_a = _failure_taxonomy_summary(results_a)
+    summary_b = _failure_taxonomy_summary(results_b)
+    keys = sorted(set(summary_a) | set(summary_b), key=lambda key: (key[0], key[1]))
+    lines = [
+        "## Failure Taxonomy Summary",
+        "",
+        "Diagnostic classification is read-only and does not change structural pass@k, execution-smoke, repair, or token metrics.",
+        "",
+        f"| Layer | Category | A: {name_a} | B: {name_b} | Delta (B - A) | Counts As Model Quality? | Retryable? |",
+        "|-------|----------|------|------|---------------|--------------------------|------------|",
+    ]
+    for key in keys:
+        row_a = summary_a.get(key)
+        row_b = summary_b.get(key)
+        count_a = row_a["count"] if row_a else 0
+        count_b = row_b["count"] if row_b else 0
+        source = row_b or row_a
+        assert source is not None
+        lines.append(
+            f"| {source['layer']} | {source['category']} | {count_a} | {count_b} | "
+            f"{_format_int_delta(count_b - count_a)} | "
+            f"{_yes_no(source['counts_as_model_quality'])} | {_yes_no(source['retryable'])} |"
+        )
+    return lines
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
 
 
 def _format_percent_delta(delta: float) -> str:

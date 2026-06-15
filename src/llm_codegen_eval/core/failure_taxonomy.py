@@ -78,7 +78,7 @@ def classify_first_shot(result: EvalResult) -> FailureClassification:
     """Classify the primary first-shot failure layer.
 
     Precedence:
-    infra > generation > checker > structural > execution_smoke > passed.
+    infra > generation > structural > checker > execution_smoke > passed.
     Repair and replay are intentionally classified by separate helpers.
     """
     if is_infra_error(result):
@@ -108,19 +108,6 @@ def classify_first_shot(result: EvalResult) -> FailureClassification:
             counts_as_model_quality=False,
         )
 
-    if (
-        result.execution_smoke is not None
-        and result.execution_smoke.applicable
-        and result.execution_smoke.failure_type == "checker_error"
-    ):
-        return FailureClassification(
-            layer="checker",
-            category="checker_error",
-            reason=result.execution_smoke.detail or "execution smoke checker error",
-            retryable=False,
-            counts_as_model_quality=False,
-        )
-
     if not result.passed:
         if result.forbidden_found:
             return FailureClassification(
@@ -136,6 +123,19 @@ def classify_first_shot(result: EvalResult) -> FailureClassification:
             reason=f"{result.required_passed}/{result.required_total} required checks passed",
             retryable=False,
             counts_as_model_quality=True,
+        )
+
+    if (
+        result.execution_smoke is not None
+        and result.execution_smoke.applicable
+        and result.execution_smoke.failure_type == "checker_error"
+    ):
+        return FailureClassification(
+            layer="checker",
+            category="checker_error",
+            reason=result.execution_smoke.detail or "execution smoke checker error",
+            retryable=False,
+            counts_as_model_quality=False,
         )
 
     if (

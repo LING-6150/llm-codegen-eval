@@ -134,6 +134,16 @@ def test_classifies_checker_error_not_model_quality():
     assert classification.counts_as_model_quality is False
 
 
+def test_precedence_structural_failure_beats_checker_error():
+    result = with_smoke(make_result(passed=False, score=0), passed=False, failure_type="checker_error")
+
+    classification = classify_first_shot(result)
+
+    assert classification.layer == "structural"
+    assert classification.category == "required_check_failed"
+    assert classification.counts_as_model_quality is True
+
+
 def test_precedence_infra_beats_structural_failure():
     result = make_result(passed=False, score=0)
     result.error = "I/O error on POST request"

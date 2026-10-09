@@ -15,6 +15,9 @@ Implementation tests are offline; actual GPU deployment and performance measurem
 Infrastructure is in `infra/azure` (AKS/ACR/node pools) and `infra/workloads`
 (Terraform-managed inference/evaluation workloads). See [Part 2 Azure guide](docs/azure-demo.md).
 
+A read-only authenticated GraphQL API queries both legacy Java reports and new serving runs.
+See [Part 3 query and recording guide](docs/graphql-demo.md).
+
 ## Current Result
 
 The latest citable result is the Redis-isolated context-pruning rerun from 2026-06-09.

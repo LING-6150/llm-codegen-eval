@@ -16,6 +16,9 @@ dependencies = [
     "pydantic>=2.13.4",
 ]
 
+[project.optional-dependencies]
+api = ["strawberry-graphql[fastapi]>=0.316,<1", "uvicorn>=0.34,<1"]
+
 [project.scripts]
 llm-codegen-eval = "llm_codegen_eval:main"
 

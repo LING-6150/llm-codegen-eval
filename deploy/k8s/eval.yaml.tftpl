@@ -46,3 +46,51 @@ spec:
           volumes:
             - name: reports
               persistentVolumeClaim: {claimName: eval-reports}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eval-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: eval-api}
+  template:
+    metadata:
+      labels: {app: eval-api}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+      containers:
+        - name: api
+          image: ${eval_image}
+          command: [python, -m, llm_codegen_eval.api.app]
+          args: [--host, '0.0.0.0', --reports-dir, /reports]
+          env:
+            - name: EVAL_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: eval-api-auth, key: token}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+          resources:
+            requests: {cpu: '100m', memory: 128Mi}
+            limits: {cpu: '1', memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: reports, mountPath: /reports, readOnly: true}
+      volumes:
+        - name: reports
+          persistentVolumeClaim: {claimName: eval-reports}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eval-api
+spec:
+  type: ClusterIP
+  selector: {app: eval-api}
+  ports: [{name: http, port: 8080, targetPort: http}]

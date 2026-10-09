@@ -27,7 +27,7 @@ jobs:
           python-version-file: .python-version
 
       - name: Install dependencies
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --extra api --dev
 
       - name: Run offline tests only
         # Live Java service / LLM benchmarks are intentionally manual and are

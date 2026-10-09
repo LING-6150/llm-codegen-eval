@@ -27,9 +27,34 @@ jobs:
           python-version-file: .python-version
 
       - name: Install dependencies
-        run: uv sync --frozen --dev
+        run: uv sync --frozen --extra api --dev
 
       - name: Run offline tests only
         # Live Java service / LLM benchmarks are intentionally manual and are
         # not run in CI because they require external services and providers.
         run: uv run pytest
+
+  terraform-validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        root: [infra/azure, infra/workloads]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.4
+      - run: terraform fmt -check -recursive infra
+      - run: terraform -chdir=${{ matrix.root }} init -backend=false -lockfile=readonly
+      - run: terraform -chdir=${{ matrix.root }} validate
+
+  container-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false

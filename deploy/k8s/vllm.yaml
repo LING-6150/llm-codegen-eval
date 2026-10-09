@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: vllm}
+  template:
+    metadata:
+      labels: {app: vllm}
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.10.2
+          args:
+            - --model
+            - Qwen/Qwen2.5-Coder-0.5B-Instruct
+            - --max-model-len
+            - '4096'
+            - --gpu-memory-utilization
+            - '0.80'
+            - --generation-config
+            - vllm
+            - --disable-log-requests
+          ports:
+            - {name: http, containerPort: 8000}
+          resources:
+            requests: {cpu: '2', memory: 6Gi, nvidia.com/gpu: '1'}
+            limits: {cpu: '4', memory: 12Gi, nvidia.com/gpu: '1'}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 30
+          volumeMounts:
+            - {name: cache, mountPath: /root/.cache/huggingface}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - name: cache
+          emptyDir: {sizeLimit: 10Gi}
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+spec:
+  type: ClusterIP
+  selector: {app: vllm}
+  ports:
+    - {name: http, port: 8000, targetPort: http}

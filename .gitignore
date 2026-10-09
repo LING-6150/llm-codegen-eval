@@ -9,3 +9,12 @@ reports/*.json
 .ruff_cache/
 .DS_Store
 .env
+
+# Cloud state, plans and training outputs may contain sensitive or large data.
+**/.terraform/
+*.tfstate*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+outputs/
+training-data/

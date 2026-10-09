@@ -1,0 +1,14 @@
+...............................................sss...................... [ 47%]
+................s......s................................................ [ 94%]
+........                                                                 [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /private/tmp/llm-eval-upgrade-20261009/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [3] tests/test_execution_smoke.py:203: Playwright browser is not installed: BrowserType.launch: Target page, context or browser has been closed
+SKIPPED [1] tests/test_repair_path_integration.py:80: Playwright browser is not installed: BrowserType.launch: Target page, context or browser has been closed
+SKIPPED [1] tests/test_replay.py:186: Playwright browser is not installed: BrowserType.launch: Target page, context or browser has been closed
+147 passed, 5 skipped, 1 warning in 4.45s

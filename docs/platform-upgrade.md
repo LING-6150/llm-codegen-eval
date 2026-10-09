@@ -32,3 +32,7 @@ claims separate from these new experiments until the new evidence is available.
 A useful interview narrative is a measured loop: deploy a model, benchmark serving and quality,
 fine-tune against a separate corpus, then evaluate the adapter on unchanged held-out cases.
 Report negative or neutral results just as clearly as improvements.
+
+## Executed implementation validation
+
+See the [implementation validation report](platform-validation-report.md) for actual test logs, CI links, supported claims and runtime evidence still pending.

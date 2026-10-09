@@ -33,3 +33,17 @@ jobs:
         # Live Java service / LLM benchmarks are intentionally manual and are
         # not run in CI because they require external services and providers.
         run: uv run pytest
+
+  terraform-validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        root: [infra/azure, infra/workloads]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.4
+      - run: terraform fmt -check -recursive infra
+      - run: terraform -chdir=${{ matrix.root }} init -backend=false -lockfile=readonly
+      - run: terraform -chdir=${{ matrix.root }} validate

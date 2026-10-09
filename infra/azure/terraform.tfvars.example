@@ -1,0 +1,7 @@
+subscription_id          = "YOUR-AZURE-SUBSCRIPTION-ID"
+registry_name            = "YOURGLOBALLYUNIQUEACRNAME"
+location                 = "eastus"
+api_authorized_ip_ranges = ["YOUR-PUBLIC-IP/32"]
+gpu_enabled              = false
+# Set true after checking regional NVIDIA GPU quota and price.
+gpu_vm_size              = "Standard_NC4as_T4_v3"

@@ -12,6 +12,9 @@ TTFT, p50/p95 latency, request/token throughput and structural quality with matc
 See [Part 1 deployment and recording guide](docs/serving-demo.md).
 Implementation tests are offline; actual GPU deployment and performance measurements are pending.
 
+Infrastructure is in `infra/azure` (AKS/ACR/node pools) and `infra/workloads`
+(Terraform-managed inference/evaluation workloads). See [Part 2 Azure guide](docs/azure-demo.md).
+
 ## Current Result
 
 The latest citable result is the Redis-isolated context-pruning rerun from 2026-06-09.

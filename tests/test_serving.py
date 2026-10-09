@@ -73,3 +73,22 @@ def test_summary_includes_failures_in_denominator():
 def test_compare_rejects_changed_workloads():
     with pytest.raises(ValueError, match="Workloads differ"):
         compare({"workload_hash": "a"}, {"workload_hash": "b"})
+
+
+def test_cli_publishes_complete_reports_and_graphql_can_read_them(monkeypatch, tmp_path):
+    from llm_codegen_eval.serving.benchmark import main
+    from llm_codegen_eval.api.store import ResultStore
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=stream())), **kwargs))
+    monkeypatch.setattr("sys.argv", ["benchmark", "--limit", "1", "--repeats", "1", "--warmup", "0",
+        "--environment", "offline protocol fixture, not GPU measurement", "--output-dir", str(tmp_path/"serving")])
+    main()
+    ids = ResultStore(tmp_path).ids()
+    assert len(ids) == 1
+    metadata, results = ResultStore(tmp_path).load(ids[0])
+    assert metadata["summary"]["successful_requests"] == 1
+    assert metadata["summary"]["output_tokens"] == 8
+    assert metadata["requests"][0]["case_id"] == results[0].case_id
+    assert not list((tmp_path/"serving").glob(".pending-*"))
+    assert (tmp_path/"serving"/ids[0]/"report.md").exists()

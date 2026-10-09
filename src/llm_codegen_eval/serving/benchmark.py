@@ -109,7 +109,7 @@ def main():
             return await benchmark(client, cases, args.concurrency, args.repeats, args.warmup, args.execution_smoke)
     results, records, summary = asyncio.run(run())
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
-    destination = args.output_dir / run_id
+    destination = args.output_dir / f".pending-{run_id}"
     destination.mkdir(parents=True, exist_ok=False)
     workload = {"cases": [c.model_dump(mode="json") for c in cases], "repeats": args.repeats,
                 "max_tokens": args.max_tokens, "temperature": args.temperature, "seed": args.seed,
@@ -125,6 +125,7 @@ def main():
     (destination/"benchmark.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     (destination/"report.md").write_text(generate_markdown(results, cases, args.label) +
         "\n## Serving measurements\n\n```json\n" + json.dumps(summary, indent=2) + "\n```\n", encoding="utf-8")
+    destination = destination.rename(args.output_dir / run_id)
     print(destination)
     print(json.dumps(summary, indent=2))
     if summary["errors"]:

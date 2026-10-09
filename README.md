@@ -4,7 +4,9 @@ Two-tier evaluation harness for a Java LLM code-generation service, built to mak
 
 The harness runs benchmark prompts against a local Java service, captures generated code through SSE, evaluates outputs with deterministic structural checks plus optional browser execution smoke checks, records raw JSON plus Markdown reports, and attributes tokens with per-run Prometheus counter windows.
 
-## Platform upgrade: model serving
+## Platform upgrade: serving, cloud, queries and fine-tuning
+
+[Upgrade overview and evidence checklist](docs/platform-upgrade.md) links the four recording guides.
 
 Optional direct OpenAI-compatible inference now reuses the HTML evaluators and raw result format.
 Kubernetes manifests serve Qwen2.5-Coder-0.5B through vLLM. A bounded-concurrency benchmark records
@@ -17,6 +19,10 @@ Infrastructure is in `infra/azure` (AKS/ACR/node pools) and `infra/workloads`
 
 A read-only authenticated GraphQL API queries both legacy Java reports and new serving runs.
 See [Part 3 query and recording guide](docs/graphql-demo.md).
+
+Optional [LoRA/QLoRA SFT and held-out evaluation](docs/finetuning-demo.md) adds deterministic
+data preparation, benchmark-overlap checks, training provenance and base/adapter comparisons.
+The sample data is a pipeline smoke fixture; GPU training and quality gains are unverified.
 
 ## Current Result
 

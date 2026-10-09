@@ -47,3 +47,14 @@ jobs:
       - run: terraform fmt -check -recursive infra
       - run: terraform -chdir=${{ matrix.root }} init -backend=false -lockfile=readonly
       - run: terraform -chdir=${{ matrix.root }} validate
+
+  container-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false

@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Countdown example</title></head>
+<body><h1>Countdown</h1><label>Seconds <input id="seconds" type="number" min="1" value="3"></label>
+<button id="start">Start</button><div id="time">00:00</div>
+<script>
+let timer;
+document.querySelector('#start').onclick = () => {
+  clearInterval(timer);
+  let remaining = Math.max(0, Math.floor(Number(document.querySelector('#seconds').value)));
+  const render = () => document.querySelector('#time').textContent = '00:' + String(remaining).padStart(2, '0');
+  render();
+  timer = setInterval(() => { remaining = Math.max(0, remaining - 1); render(); if (!remaining) clearInterval(timer); }, 1000);
+};
+</script></body></html>

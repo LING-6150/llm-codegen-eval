@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Behavior reference fixture</title></head><body><h1>Contact</h1><form novalidate><label>Name<input data-testid="name"></label><label>Email<input data-testid="email" type="text"></label><button data-testid="submit" type="submit">Submit</button></form><div data-testid="error"></div><div data-testid="status">idle</div><div data-testid="receipt"></div><script>
+const get = id => document.querySelector(`[data-testid="${id}"]`);
+document.querySelector('form').onsubmit = event => {
+  event.preventDefault();
+  const name = get('name').value.trim(), email = get('email').value.trim();
+  let error = '';
+  if (!name) error = 'Name required';
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) error = 'Invalid email';
+  get('error').textContent = error;
+  get('status').textContent = error ? 'invalid' : 'submitted';
+  get('receipt').textContent = error ? '' : name + ' <' + email + '>';
+};
+</script></body></html>

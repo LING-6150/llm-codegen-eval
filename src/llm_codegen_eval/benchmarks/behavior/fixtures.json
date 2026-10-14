@@ -1,0 +1,82 @@
+[
+  {
+    "case_id": "behavior_timer",
+    "reference": "behavior_timer.html",
+    "mutants": [
+      {
+        "file": "behavior_timer--frozen.html",
+        "expected_failed_check": "countdown-decreases",
+        "fault": "frozen"
+      },
+      {
+        "file": "behavior_timer--ignores-pause.html",
+        "expected_failed_check": "pause-preserves-time",
+        "fault": "ignores-pause"
+      }
+    ]
+  },
+  {
+    "case_id": "behavior_form",
+    "reference": "behavior_form.html",
+    "mutants": [
+      {
+        "file": "behavior_form--accepts-invalid-email.html",
+        "expected_failed_check": "reject-invalid-email",
+        "fault": "accepts-invalid-email"
+      },
+      {
+        "file": "behavior_form--missing-receipt.html",
+        "expected_failed_check": "submit-valid-values",
+        "fault": "missing-receipt"
+      }
+    ]
+  },
+  {
+    "case_id": "behavior_todo",
+    "reference": "behavior_todo.html",
+    "mutants": [
+      {
+        "file": "behavior_todo--delete-noop.html",
+        "expected_failed_check": "delete-only-selected",
+        "fault": "delete-noop"
+      },
+      {
+        "file": "behavior_todo--toggle-all.html",
+        "expected_failed_check": "toggle-only-one",
+        "fault": "toggle-all"
+      }
+    ]
+  },
+  {
+    "case_id": "behavior_filter",
+    "reference": "behavior_filter.html",
+    "mutants": [
+      {
+        "file": "behavior_filter--case-sensitive.html",
+        "expected_failed_check": "case-insensitive-search",
+        "fault": "case-sensitive"
+      },
+      {
+        "file": "behavior_filter--or-instead-of-and.html",
+        "expected_failed_check": "case-insensitive-search",
+        "fault": "or-instead-of-and"
+      }
+    ]
+  },
+  {
+    "case_id": "behavior_notes",
+    "reference": "behavior_notes.html",
+    "mutants": [
+      {
+        "file": "behavior_notes--save-noop.html",
+        "expected_failed_check": "save-and-reload",
+        "fault": "save-noop"
+      },
+      {
+        "file": "behavior_notes--clear-not-persisted.html",
+        "expected_failed_check": "clear-and-reload",
+        "fault": "clear-not-persisted"
+      }
+    ]
+  }
+]

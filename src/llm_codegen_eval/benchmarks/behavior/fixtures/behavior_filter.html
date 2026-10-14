@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Behavior reference fixture</title></head><body><h1>Products</h1><label>Search<input data-testid="query"></label><label>Category<select data-testid="category"><option value="all">All</option><option value="furniture">Furniture</option><option value="kitchen">Kitchen</option></select></label><ul data-testid="products"></ul><script>
+const get = id => document.querySelector(`[data-testid="${id}"]`);
+const products = [{name:'Oak Desk',category:'furniture'},{name:'Pine Chair',category:'furniture'},
+ {name:'Blue Mug',category:'kitchen'},{name:'Green Plate',category:'kitchen'}];
+const render = () => {
+  get('products').replaceChildren();
+  const query = get('query').value.toLowerCase(), category = get('category').value;
+  for (const product of products) {
+    const matchesName = product.name.toLowerCase().includes(query);
+    const matchesCategory = category === 'all' || product.category === category;
+    if (matchesName && matchesCategory) {
+      const row = document.createElement('li'); row.dataset.testid = 'product'; row.textContent = product.name;
+      get('products').append(row);
+    }
+  }
+};
+get('query').oninput = render; get('category').onchange = render; render();
+</script></body></html>

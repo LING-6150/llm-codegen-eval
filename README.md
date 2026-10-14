@@ -17,6 +17,9 @@ For live model generation use `--target openai:<model-id>` and your provider's `
 See [public CLI setup, parameters and output format](docs/generic-cli.md).
 The original Java benchmark and A/B commands remain available below.
 
+Five versioned browser behavior contracts and their reference/mutation calibration are documented
+in [behavior contracts](docs/behavior-contracts.md). CLI integration follows in the next increment.
+
 ## Platform upgrade: serving, cloud, queries and fine-tuning
 
 [Upgrade overview and evidence checklist](docs/platform-upgrade.md) links the four recording guides.

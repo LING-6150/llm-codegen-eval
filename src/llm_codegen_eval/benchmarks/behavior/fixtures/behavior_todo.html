@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Behavior reference fixture</title></head><body><h1>Tasks</h1><label>Task<input data-testid="task-input"></label><button data-testid="add">Add</button><ul data-testid="tasks"></ul><script>
+const get = id => document.querySelector(`[data-testid="${id}"]`);
+get('add').onclick = () => {
+  const value = get('task-input').value.trim();
+  if (!value) return;
+  const item = document.createElement('li'); item.dataset.testid = 'task';
+  const label = document.createElement('span'); label.dataset.testid = 'task-label'; label.textContent = value;
+  const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.dataset.testid = 'task-toggle';
+  toggle.onchange = () => { item.dataset.completed = String(toggle.checked); };
+  const remove = document.createElement('button'); remove.dataset.testid = 'task-delete'; remove.textContent = 'Delete';
+  remove.onclick = () => { item.remove(); };
+  item.append(label, toggle, remove); get('tasks').append(item); get('task-input').value = '';
+};
+</script></body></html>

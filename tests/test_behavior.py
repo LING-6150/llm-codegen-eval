@@ -82,6 +82,7 @@ async def test_missing_browser_is_checker_error():
     code = (SUITE_ROOT / "fixtures" / "behavior_form.html").read_text()
     outcome = await evaluate_browser(code, CASES["behavior_form"], playwright_factory=Missing)
     assert outcome.smoke.failure_type == "checker_error"
+    assert "playwright install chromium" in outcome.smoke.detail
     assert outcome.behavior.status == "not_run"
 
 
@@ -109,3 +110,19 @@ async def test_incomplete_checker_is_not_a_pass(monkeypatch):
     outcome = await evaluate_browser(code, CASES["behavior_notes"])
     assert outcome.smoke.passed
     assert outcome.behavior.status == "checker_error"
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
+@pytest.mark.parametrize("control", ['<div data-testid="seconds"></div>',
+    '<input data-testid="seconds" type="number" value="3"><input data-testid="seconds" type="number" value="3">'])
+async def test_invalid_or_ambiguous_generated_controls_are_app_failures(control):
+    case = CASES["behavior_timer"]
+    code = (SUITE_ROOT / "fixtures" / "behavior_timer.html").read_text()
+    code = code.replace('<input data-testid="seconds" type="number" min="1" value="3">', control)
+    assert (await HtmlEvaluator().evaluate(code, case)).passed
+    outcome = await evaluate_browser(code, case)
+    assert outcome.smoke.passed
+    assert outcome.behavior.status == "failed", outcome.behavior
+    assert outcome.behavior.checks[0].check_id == "countdown-decreases"
+    assert outcome.behavior.checks[0].status == "failed"

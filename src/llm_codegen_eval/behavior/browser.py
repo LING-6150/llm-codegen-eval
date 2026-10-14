@@ -122,9 +122,9 @@ async def evaluate_browser(code, case, evidence_dir: Path | None = None, playwri
                                     detail=runtime_errors[0] if runtime_errors else (None if complete else "Checker returned before all declared checks ran"))
                 except Exception as exc:
                     if outcome.smoke.passed:
-                        outcome.behavior = BehaviorResult(status="checker_error", checks=steps.complete(), detail=f"Browser/checker error: {type(exc).__name__}")
+                        outcome.behavior = BehaviorResult(status="checker_error", checks=steps.complete(), detail=f"Behavior checker error: {type(exc).__name__}")
                     else:
-                        outcome.smoke = smoke_result(detail=f"Browser/checker error: {type(exc).__name__}")
+                        outcome.smoke = smoke_result(detail=f"Browser/checker error: {type(exc).__name__}. Ensure matching Chromium is installed (playwright install chromium) and browser/loopback execution is permitted.")
                 finally:
                     if behavior_start is not None:
                         outcome.behavior.duration_ms = round((perf_counter() - behavior_start) * 1000)
@@ -144,7 +144,7 @@ async def evaluate_browser(code, case, evidence_dir: Path | None = None, playwri
                     if browser is not None:
                         await browser.close()
     except Exception as exc:
-        outcome.smoke = smoke_result(detail=f"Browser environment error: {type(exc).__name__}")
+        outcome.smoke = smoke_result(detail=f"Browser environment error: {type(exc).__name__}. Ensure matching Chromium is installed (playwright install chromium) and browser/loopback execution is permitted.")
     if not outcome.smoke.duration_ms:
         outcome.smoke.duration_ms = round((perf_counter() - start) * 1000)
     if evidence_dir is not None:

@@ -1,6 +1,6 @@
 """EvalResult: outcome of running an EvalCase."""
 
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, Field
 from datetime import datetime
 from .case import ElementCheck
@@ -15,6 +15,23 @@ class ExecutionSmokeResult(BaseModel):
     detail: Optional[str] = None
     duration_ms: int = 0
     checked_selectors: list[str] = Field(default_factory=list)
+
+
+BehaviorStatus = Literal["passed", "failed", "checker_error", "not_run", "not_applicable"]
+
+
+class BehaviorCheck(BaseModel):
+    check_id: str
+    status: BehaviorStatus
+    detail: Optional[str] = None
+
+
+class BehaviorResult(BaseModel):
+    status: BehaviorStatus
+    contract_version: str = "1"
+    checks: list[BehaviorCheck] = Field(default_factory=list)
+    detail: Optional[str] = None
+    duration_ms: int = 0
 
 
 class RepairSummary(BaseModel):
@@ -58,6 +75,9 @@ class EvalResult(BaseModel):
     error: Optional[str] = None
     execution_smoke: Optional[ExecutionSmokeResult] = None
     repair_summary: Optional[RepairSummary] = None
+    behavior_result: Optional[BehaviorResult] = None
+    browser_evidence: dict[str, str] = Field(default_factory=dict)
+    browser_diagnostics: dict = Field(default_factory=dict)
 
     run_at: datetime = Field(default_factory=datetime.now)
     run_config: dict = Field(default_factory=dict)

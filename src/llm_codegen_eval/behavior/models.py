@@ -1,29 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Literal
-from pydantic import BaseModel, Field
 from ..core.case import EvalCase
-from ..core.result import ExecutionSmokeResult
-
-Status = Literal["passed", "failed", "checker_error", "not_run", "not_applicable"]
-
+from ..core.result import ExecutionSmokeResult, BehaviorCheck, BehaviorResult
 
 class BehaviorCase(EvalCase):
     behavior_id: str
     contract_version: str = "1"
-
-
-class BehaviorCheck(BaseModel):
-    check_id: str
-    status: Status
-    detail: str | None = None
-
-
-class BehaviorResult(BaseModel):
-    status: Status
-    contract_version: str = "1"
-    checks: list[BehaviorCheck] = Field(default_factory=list)
-    detail: str | None = None
-    duration_ms: int = 0
 
 
 @dataclass

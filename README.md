@@ -1,8 +1,21 @@
 # llm-codegen-eval
 
-Two-tier evaluation harness for a Java LLM code-generation service, built to make A/B changes measurable instead of judged by demo screenshots or vibes.
+HTML code-generation evaluation with a public CLI for OpenAI-compatible models and saved artifacts, plus the original Java-service A/B harness.
 
 The harness runs benchmark prompts against a local Java service, captures generated code through SSE, evaluates outputs with deterministic structural checks plus optional browser execution smoke checks, records raw JSON plus Markdown reports, and attributes tokens with per-run Prometheus counter windows.
+
+## Start without Java or a GPU
+
+```bash
+uv sync --frozen --dev
+uv run llm-codegen-eval list-cases --suite html
+uv run llm-codegen-eval run --target artifacts --artifacts-dir examples/html --case-id html_001
+```
+
+This hand-written example validates structural requirements; it is not a model-quality result.
+For live model generation use `--target openai:<model-id>` and your provider's `--base-url`.
+See [public CLI setup, parameters and output format](docs/generic-cli.md).
+The original Java benchmark and A/B commands remain available below.
 
 ## Platform upgrade: serving, cloud, queries and fine-tuning
 

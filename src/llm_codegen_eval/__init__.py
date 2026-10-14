@@ -1,2 +1,6 @@
+"""HTML code-generation evaluation."""
+
+
 def main() -> None:
-    print("Hello from llm-codegen-eval!")
+    from .cli import main as cli_main
+    cli_main()

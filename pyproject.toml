@@ -1,7 +1,7 @@
 [project]
 name = "llm-codegen-eval"
 version = "0.1.0"
-description = "Add your description here"
+description = "HTML code-generation evaluation with API adapters, browser checks and reproducible reports"
 readme = "README.md"
 authors = [
     { name = "LING-6150", email = "duan.lin@northeastern.edu" }

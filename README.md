@@ -2,23 +2,29 @@
 
 HTML code-generation evaluation with a public CLI for OpenAI-compatible models and saved artifacts, plus the original Java-service A/B harness.
 
-The harness runs benchmark prompts against a local Java service, captures generated code through SSE, evaluates outputs with deterministic structural checks plus optional browser execution smoke checks, records raw JSON plus Markdown reports, and attributes tokens with per-run Prometheus counter windows.
+The public CLI evaluates self-contained HTML from OpenAI-compatible models or saved artifacts.
+Five versioned behavior contracts report structural compliance, initial browser load and interactive
+behavior independently. The original Java-service A/B workflow remains available for historical experiments.
 
 ## Start without Java or a GPU
 
 ```bash
 uv sync --frozen --dev
-uv run llm-codegen-eval list-cases --suite html
-uv run llm-codegen-eval run --target artifacts --artifacts-dir examples/html --case-id html_001
+uv run playwright install chromium
+uv run llm-codegen-eval demo
 ```
 
-This hand-written example validates structural requirements; it is not a model-quality result.
-For live model generation use `--target openai:<model-id>` and your provider's `--base-url`.
-See [public CLI setup, parameters and output format](docs/generic-cli.md).
-The original Java benchmark and A/B commands remain available below.
+The demo runs five hand-written checker references and writes Markdown/JSON reports, screenshots
+and traces. It is a pipeline demonstration, not a model-quality result.
+For live generation use `run --target openai:<model-id> --base-url <provider-url> --suite html-behavior-v1`.
 
-Five versioned browser behavior contracts and their reference/mutation calibration are documented
-in [behavior contracts](docs/behavior-contracts.md). CLI integration follows in the next increment.
+- [CLI setup and API/artifact adapters](docs/generic-cli.md)
+- [Five behavior contracts and reference/mutation calibration](docs/behavior-contracts.md)
+- [Three-layer report meanings, denominators and failing example](docs/three-layer-reports.md)
+
+Structure-only use remains possible without a browser:
+`uv run llm-codegen-eval run --target artifacts --artifacts-dir examples/html --case-id html_001`.
+The legacy `html` suite does not imply behavioral correctness. Original Java commands remain below.
 
 ## Platform upgrade: serving, cloud, queries and fine-tuning
 

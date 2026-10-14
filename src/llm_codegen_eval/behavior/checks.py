@@ -1,5 +1,5 @@
 """Explicit browser-only assertions; never inspect generated implementation code."""
-from playwright.async_api import expect
+from playwright.async_api import expect, Error as BrowserError
 from .models import BehaviorCheck
 
 CHECKS = {
@@ -26,6 +26,16 @@ class Steps:
             await operation()
         except (AssertionError, TimeoutError) as exc:
             self.results.append(BehaviorCheck(check_id=check_id, status="failed", detail=str(exc)[:2000]))
+            raise BehaviorFailure() from exc
+        except BrowserError as exc:
+            # Invalid/ambiguous generated controls violate the public DOM contract.
+            # Other browser/protocol errors remain checker errors in the outer runner.
+            message = str(exc)
+            if not any(pattern in message for pattern in (
+                "Element is not an", "Element is not a", "Not an input element", "strict mode violation",
+            )):
+                raise
+            self.results.append(BehaviorCheck(check_id=check_id, status="failed", detail=message[:2000]))
             raise BehaviorFailure() from exc
         else:
             self.results.append(BehaviorCheck(check_id=check_id, status="passed"))

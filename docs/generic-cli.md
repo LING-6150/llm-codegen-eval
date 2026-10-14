@@ -1,5 +1,8 @@
 # Public CLI: API generation and saved HTML
 
+For the five behavior cases and independent layer reports, see [three-layer evaluation](three-layer-reports.md).
+Run `uv run llm-codegen-eval demo` after installing Chromium for a keyless, packaged reference demonstration.
+
 Install with `uv sync --frozen --dev`. No Java, MySQL, Redis, Prometheus, GPU or API key is
 needed for the saved-artifact example. Python 3.13 remains required in this increment.
 
@@ -33,7 +36,8 @@ to control the workload. `--output-dir` defaults to `reports/runs`. Each complet
 
 - `run.json`: source kind, parameters, full case definitions and workload hash;
 - `results.json`: existing EvalResult JSON, retaining structural semantics;
-- `report.md`: existing Markdown report;
+- `report.md` / `layers.json`: independent layer report;
+- `structural-report.md`: existing Markdown report format;
 - `artifacts/<case-id>-r<attempt>.html`: complete generated artifacts for later evaluation.
 
 Reports are published in a unique directory only after all files are written. Incomplete runs retain

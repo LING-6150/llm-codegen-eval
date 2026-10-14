@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Behavior reference fixture</title></head><body><h1>Notes</h1><label>Note<textarea data-testid="note"></textarea></label><button data-testid="save">Save</button><button data-testid="clear">Clear</button><div data-testid="status">idle</div><script>
+const get = id => document.querySelector(`[data-testid="${id}"]`);
+get('note').value = localStorage.getItem('note') || '';
+get('save').onclick = () => { void 0; get('status').textContent = 'saved'; };
+get('clear').onclick = () => { localStorage.removeItem('note'); get('note').value = ''; get('status').textContent = 'cleared'; };
+</script></body></html>

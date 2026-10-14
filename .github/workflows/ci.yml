@@ -32,7 +32,7 @@ jobs:
       - name: Run offline tests only
         # Live Java service / LLM benchmarks are intentionally manual and are
         # not run in CI because they require external services and providers.
-        run: uv run pytest
+        run: uv run pytest -m "not browser"
 
   terraform-validate:
     runs-on: ubuntu-latest
@@ -58,3 +58,16 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
+
+  behavior-browser-tests:
+    name: Verified HTML behaviors (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - run: uv sync --frozen --extra api --dev
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m browser -q

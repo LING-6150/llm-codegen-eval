@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Behavior reference fixture</title></head><body><h1>Countdown</h1><label>Seconds<input data-testid="seconds" type="number" min="1" value="3"></label><button data-testid="start">Start / resume</button><button data-testid="pause">Pause</button><button data-testid="reset">Reset</button><div data-testid="remaining">0</div><div data-testid="status">idle</div><script>
+const get = id => document.querySelector(`[data-testid="${id}"]`);
+let remaining = 0, interval = null, mode = 'idle';
+const render = () => { get('remaining').textContent = remaining; get('status').textContent = mode; };
+const stop = () => { clearInterval(interval); interval = null; };
+get('start').onclick = () => {
+  if (mode !== 'paused') remaining = Math.max(1, Math.floor(Number(get('seconds').value)));
+  stop(); mode = 'running'; render();
+  interval = setInterval(() => {
+    remaining = Math.max(0, remaining - 1);
+    if (remaining === 0) { stop(); mode = 'done'; }
+    render();
+  }, 1000);
+};
+get('pause').onclick = () => { mode = 'paused'; render(); };
+get('reset').onclick = () => { stop(); remaining = Number(get('seconds').value); mode = 'idle'; render(); };
+</script></body></html>

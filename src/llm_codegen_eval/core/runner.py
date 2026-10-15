@@ -1,7 +1,9 @@
 """Run a single eval case against the Java service."""
 
+from pathlib import Path
+
 from .case import EvalCase, CodeType
-from .result import EvalResult, RepairSummary
+from .result import EvalResult, FinalArtifactResult, RepairSummary
 from ..clients.java_client import JavaServiceClient
 from ..evaluators.html_eval import HtmlEvaluator
 from ..evaluators.vue_eval import VueEvaluator
@@ -21,13 +23,20 @@ REPAIRABLE_EXECUTION_FAILURES = {
     "build_failure",
 }
 
+# v2 keeps case-specific selectors out of the generation prompt.
+REPAIR_PROMPT_VERSION = 2
+
 async def run_case(
     case: EvalCase,
     client: JavaServiceClient,
     agent: bool = True,
     java_params: dict | None = None,
     execution_smoke: bool = False,
+    score_final_artifact: bool = False,
+    final_artifact_dir: Path | None = None,
 ) -> EvalResult:
+    baseline_hash = await _snapshot_artifact_hash(client) if score_final_artifact else None
+
     try:
         gen_result = await client.generate(case.prompt, agent=agent, extra_params=java_params)
     except Exception as e:
@@ -84,7 +93,76 @@ async def run_case(
     result.review_passed = gen_result.get("review_passed")
     result.run_config.update({"agent": agent, "java_params": java_params or {}})
 
+    if score_final_artifact:
+        result.final_artifact = await _score_final_artifact(
+            client,
+            case,
+            generated_type=gen_result.get("code_gen_type"),
+            baseline_hash=baseline_hash,
+            execution_smoke=execution_smoke,
+            artifact_dir=final_artifact_dir,
+        )
+
     return result
+
+
+async def _snapshot_artifact_hash(client: JavaServiceClient) -> str | None:
+    """Hash of the output directory before generation, to detect stale downloads."""
+    from .final_artifact import content_hash, extract_zip_files
+
+    try:
+        return content_hash(extract_zip_files(await client.download_artifact()))
+    except Exception:
+        return None
+
+
+async def _score_final_artifact(
+    client: JavaServiceClient,
+    case: EvalCase,
+    generated_type: str | None,
+    baseline_hash: str | None,
+    execution_smoke: bool,
+    artifact_dir: Path | None,
+) -> FinalArtifactResult:
+    """Score the post-Review/Refine files; never fails the run itself."""
+    from .final_artifact import content_hash, evaluate_final_artifact, extract_zip_files
+
+    try:
+        app_type = await client.get_app_code_gen_type()
+        if generated_type and app_type and generated_type != app_type:
+            # The download endpoint zips {appType}_{appId}; the orchestrator wrote
+            # {generatedType}_{appId}. Scoring the download would read another run's files.
+            return FinalArtifactResult(
+                available=False,
+                generated_code_gen_type=generated_type,
+                error=(
+                    f"Generated type {generated_type} differs from app type {app_type}; "
+                    "download would serve a different directory"
+                ),
+            )
+
+        files = extract_zip_files(await client.download_artifact())
+        if baseline_hash is not None and content_hash(files) == baseline_hash:
+            return FinalArtifactResult(
+                available=False,
+                generated_code_gen_type=generated_type,
+                error="Output directory unchanged since before the run; files may be stale",
+            )
+
+        result = await evaluate_final_artifact(
+            files,
+            case,
+            execution_smoke=execution_smoke,
+            artifact_dir=artifact_dir,
+        )
+        result.generated_code_gen_type = generated_type
+        return result
+    except Exception as exc:
+        return FinalArtifactResult(
+            available=False,
+            generated_code_gen_type=generated_type,
+            error=f"Final artifact unavailable: {exc}",
+        )
 
 
 async def run_repair(
@@ -156,6 +234,7 @@ async def run_repair(
         repaired_structural_passed=repaired_result.passed,
         repaired_score=repaired_result.score,
         repaired_execution_smoke=repaired_smoke,
+        prompt_version=REPAIR_PROMPT_VERSION,
     )
 
 
@@ -195,6 +274,10 @@ def _build_repair_prompt(case: EvalCase, result: EvalResult) -> str:
     smoke = result.execution_smoke
     failure_type = smoke.failure_type if smoke else "unknown"
     detail = smoke.detail if smoke and smoke.detail else ""
+    if failure_type == "missing_element":
+        # The raw detail lists the case's hidden selectors; feeding them back would
+        # let the generator target the judge instead of the user request.
+        detail = "Some page elements the request needs were not present after load."
     generated_code = result.generated_code[:20000]
     return (
         "Repair the generated code for the same user request.\n\n"

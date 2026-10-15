@@ -79,6 +79,7 @@ async def run_config(
     clear_redis_memory: bool,
     execution_smoke: bool,
     repair_on_execution_fail: bool,
+    final_artifact_dir: Path | None = None,
 ) -> tuple[list[EvalResult], TokenSummary | None]:
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
     java_params = java_request_params(config)
@@ -143,6 +144,8 @@ async def run_config(
         capture_run_tokens=capture_run_tokens,
         execution_smoke=execution_smoke,
         repair_on_execution_fail=repair_on_execution_fail,
+        score_final_artifact=final_artifact_dir is not None,
+        final_artifact_dir=final_artifact_dir,
     )
     token_summary = await capture_token_delta(client, config.name, token_before)
     return results, token_summary
@@ -204,6 +207,7 @@ async def main(
     clear_redis_memory: bool = True,
     execution_smoke: bool = False,
     repair_on_execution_fail: bool = False,
+    score_final_artifact: bool = False,
 ):
     if runs_per_case < 1:
         raise ValueError("--runs-per-case must be >= 1")
@@ -241,6 +245,10 @@ async def main(
     print("=" * 70)
 
     start = datetime.now()
+    artifact_root = (
+        Path(f"reports/artifacts/ab_{start.strftime('%Y%m%d_%H%M%S')}")
+        if score_final_artifact else None
+    )
     results_a: list[EvalResult] = []
     results_b: list[EvalResult] = []
     token_summary_a = None
@@ -267,6 +275,7 @@ async def main(
             clear_redis_memory,
             execution_smoke,
             repair_on_execution_fail,
+            final_artifact_dir=artifact_root / config_a.name if artifact_root else None,
         )
         results_b, token_summary_b = await run_config(
             config_b,
@@ -288,6 +297,7 @@ async def main(
             clear_redis_memory,
             execution_smoke,
             repair_on_execution_fail,
+            final_artifact_dir=artifact_root / config_b.name if artifact_root else None,
         )
     except PreflightError as e:
         print(f"❌ Pre-flight failed: {e}")
@@ -333,6 +343,10 @@ async def main(
             "One-shot repair mode": (
                 "enabled for whitelisted execution smoke app failures"
                 if repair_on_execution_fail else "disabled"
+            ),
+            "Final artifact scoring": (
+                f"enabled; post-Review/Refine files saved under {artifact_root}"
+                if score_final_artifact else "disabled"
             ),
             "Run token attribution mode": (
                 "Prometheus per-attempt counter delta; valid only for sequential runs "
@@ -392,6 +406,9 @@ if __name__ == "__main__":
                         help="Disable execution smoke validation (default)")
     parser.add_argument("--repair-on-execution-fail", dest="repair_on_execution_fail", action="store_true",
                         default=False, help="Attempt exactly one repair for whitelisted execution smoke app failures")
+    parser.add_argument("--score-final-artifact", dest="score_final_artifact", action="store_true",
+                        default=False,
+                        help="Also download and score the files left on disk after Review/Refine")
     parser.add_argument("--no-repair-on-execution-fail", dest="repair_on_execution_fail", action="store_false",
                         help="Disable one-shot execution-feedback repair (default)")
     parser.add_argument("--app-id", help="Java service appId to use")
@@ -437,4 +454,5 @@ if __name__ == "__main__":
         clear_redis_memory=args.clear_redis_memory,
         execution_smoke=args.execution_smoke,
         repair_on_execution_fail=args.repair_on_execution_fail,
+        score_final_artifact=args.score_final_artifact,
     ))

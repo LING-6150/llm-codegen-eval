@@ -92,6 +92,9 @@ async def run_case(
     result.review_score = gen_result.get("review_score")
     result.review_passed = gen_result.get("review_passed")
     result.run_config.update({"agent": agent, "java_params": java_params or {}})
+    if gen_result.get("verify_details"):
+        # Java-side execution feedback per Review attempt; diagnostic only, never scored.
+        result.run_config["verify_details"] = gen_result["verify_details"]
 
     if score_final_artifact:
         result.final_artifact = await _score_final_artifact(

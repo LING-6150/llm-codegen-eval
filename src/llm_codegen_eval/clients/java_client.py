@@ -72,6 +72,7 @@ class JavaServiceClient:
         review_passed = None
         workflow_error = None
         code_gen_type = None
+        verify_details = []
         start_time = time.time()
 
         params = {
@@ -121,6 +122,8 @@ class JavaServiceClient:
                             review_passed = passed_match.group(1) == "true"
                     elif event_type == "workflow_error":
                         workflow_error = payload.get("detail", "Unknown error")
+                    elif event_type == "verify_done":
+                        verify_details.append(payload.get("detail", ""))
                     elif event_type == "requirement_done":
                         # Orchestrator writes files under the RequirementAgent's type,
                         # which may differ from the app's stored codeGenType.
@@ -137,6 +140,7 @@ class JavaServiceClient:
             "duration_ms": duration_ms,
             "error": workflow_error,
             "code_gen_type": code_gen_type,
+            "verify_details": verify_details,
         }
 
     async def get_app_code_gen_type(self) -> str | None:

@@ -1,0 +1,9 @@
+name: execution_feedback_off
+generation:
+  agent: true
+java_service:
+  params:
+    agent.orchestrator.enabled: true
+    executionFeedback: false
+metadata:
+  hypothesis: Review-only Refine loop (LLM review is the only feedback)

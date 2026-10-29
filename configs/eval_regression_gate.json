@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "cases_path": "src/llm_codegen_eval/benchmarks/cases.json",
+  "fixtures": [
+    "tests/fixtures/replay/html_005_bad.json",
+    "tests/fixtures/replay/html_005_good.json"
+  ],
+  "max_drop": {
+    "fixture_score_points": 0,
+    "mean_score_points": 0,
+    "structural_pass_rate_pp": 0,
+    "required_check_pass_rate_pp": 0,
+    "optional_check_pass_rate_pp": 0
+  }
+}

@@ -1,4 +1,3 @@
-import importlib
 import json
 import subprocess
 import sys
@@ -90,35 +89,25 @@ def test_report_only_replay_renders_banner_and_metadata_without_live_calls(tmp_p
 
 
 def test_results_io_and_replay_import_no_live_modules():
-    for module_name in [
-        "llm_codegen_eval.core.replay",
-        "llm_codegen_eval.core.reporter",
-        "llm_codegen_eval.core.results_io",
-        "llm_codegen_eval.core.failure_taxonomy",
-        "llm_codegen_eval.core.batch_runner",
-        "llm_codegen_eval.clients.java_client",
-        "llm_codegen_eval.core.metrics",
-        "llm_codegen_eval.core.runner",
-        "llm_codegen_eval.core.preflight",
-        "llm_codegen_eval.evaluators.html_eval",
-        "llm_codegen_eval.evaluators.vue_eval",
-        "llm_codegen_eval.evaluators.execution_smoke",
-        "playwright.async_api",
-    ]:
-        sys.modules.pop(module_name, None)
+    # A fresh interpreter checks imports without invalidating other tests' modules.
+    subprocess.run(
+        [sys.executable, "-c", """
+import sys
+import llm_codegen_eval.core.results_io
+import llm_codegen_eval.core.replay
 
-    importlib.import_module("llm_codegen_eval.core.results_io")
-    importlib.import_module("llm_codegen_eval.core.replay")
-
-    assert "llm_codegen_eval.core.batch_runner" not in sys.modules
-    assert "llm_codegen_eval.clients.java_client" not in sys.modules
-    assert "llm_codegen_eval.core.metrics" not in sys.modules
-    assert "llm_codegen_eval.core.runner" not in sys.modules
-    assert "llm_codegen_eval.core.preflight" not in sys.modules
-    assert "llm_codegen_eval.evaluators.html_eval" not in sys.modules
-    assert "llm_codegen_eval.evaluators.vue_eval" not in sys.modules
-    assert "llm_codegen_eval.evaluators.execution_smoke" not in sys.modules
-    assert "playwright.async_api" not in sys.modules
+assert "llm_codegen_eval.core.batch_runner" not in sys.modules
+assert "llm_codegen_eval.clients.java_client" not in sys.modules
+assert "llm_codegen_eval.core.metrics" not in sys.modules
+assert "llm_codegen_eval.core.runner" not in sys.modules
+assert "llm_codegen_eval.core.preflight" not in sys.modules
+assert "llm_codegen_eval.evaluators.html_eval" not in sys.modules
+assert "llm_codegen_eval.evaluators.vue_eval" not in sys.modules
+assert "llm_codegen_eval.evaluators.execution_smoke" not in sys.modules
+assert "playwright.async_api" not in sys.modules
+"""],
+        check=True,
+    )
 
 
 def test_save_results_writes_structured_truncation_metadata(tmp_path: Path):

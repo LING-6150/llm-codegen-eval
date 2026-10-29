@@ -34,6 +34,32 @@ jobs:
         # not run in CI because they require external services and providers.
         run: uv run pytest
 
+  eval-regression-gate:
+    name: Offline eval regression gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - name: Install locked dependencies
+        run: uv sync --frozen --dev
+      - name: Compare against the PR base baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: uv run python scripts/eval_regression_gate.py check --base-ref "$BASE_SHA" --report reports/eval-regression-gate.md
+      - name: Upload eval regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-regression-report
+          path: reports/eval-regression-gate.md
+          if-no-files-found: error
+
   terraform-validate:
     runs-on: ubuntu-latest
     strategy:

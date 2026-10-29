@@ -43,6 +43,8 @@ async def run_batch(
     capture_run_tokens: bool = False,
     execution_smoke: bool = False,
     repair_on_execution_fail: bool = False,
+    score_final_artifact: bool = False,
+    final_artifact_dir: Path | None = None,
 ) -> list[EvalResult]:
     """Run all cases sequentially or with limited concurrency.
 
@@ -62,6 +64,9 @@ async def run_batch(
         raise ValueError("capture_run_tokens requires concurrency=1")
     if repair_on_execution_fail and not execution_smoke:
         raise ValueError("repair_on_execution_fail requires execution_smoke=True")
+    if score_final_artifact and concurrency != 1:
+        # Every run writes to the same {type}_{appId} directory.
+        raise ValueError("score_final_artifact requires concurrency=1")
 
     if health_check and not await client.health():
         raise BatchRunAborted(
@@ -105,16 +110,18 @@ async def run_batch(
                     except Exception as exc:
                         diagnostic_before = None
 
+                # Only pass optional flags when enabled, so legacy call shapes stay identical.
+                run_kwargs: dict = {"agent": agent, "java_params": java_params}
                 if execution_smoke:
-                    result = await run_case(
-                        case,
-                        client,
-                        agent=agent,
-                        java_params=java_params,
-                        execution_smoke=True,
-                    )
-                else:
-                    result = await run_case(case, client, agent=agent, java_params=java_params)
+                    run_kwargs["execution_smoke"] = True
+                if score_final_artifact:
+                    run_kwargs["score_final_artifact"] = True
+                    if final_artifact_dir is not None:
+                        run_kwargs["final_artifact_dir"] = (
+                            final_artifact_dir
+                            / f"{case.case_id}_run{run_idx + 1}_attempt{attempt_idx + 1}"
+                        )
+                result = await run_case(case, client, **run_kwargs)
 
                 if capture_run_tokens:
                     try:

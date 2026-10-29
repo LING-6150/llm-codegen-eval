@@ -1,0 +1,9 @@
+name: execution_feedback_on
+generation:
+  agent: true
+java_service:
+  params:
+    agent.orchestrator.enabled: true
+    executionFeedback: true
+metadata:
+  hypothesis: Refine also receives real load/build errors from a deterministic verifier

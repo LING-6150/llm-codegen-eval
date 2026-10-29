@@ -48,6 +48,49 @@ async def evaluate_execution_smoke(
             start=start,
         )
 
+    return await _smoke_html(html, case, timeout_ms, playwright_factory, start)
+
+
+async def evaluate_execution_smoke_files(
+    files: dict[str, str],
+    case: EvalCase,
+    timeout_ms: int = 5000,
+    playwright_factory: Any | None = None,
+) -> ExecutionSmokeResult:
+    """Smoke-check the saved project files, so index.html loads its real CSS/JS siblings."""
+
+    start = time.perf_counter()
+    if case.code_type not in {CodeType.HTML, CodeType.MULTI_FILE}:
+        return _result(
+            applicable=False,
+            passed=False,
+            failure_type="not_applicable",
+            detail=f"Execution smoke not implemented for code_type={case.code_type.value}",
+            start=start,
+        )
+
+    html = files.get("index.html")
+    if not html or not html.strip():
+        return _result(
+            applicable=True,
+            passed=False,
+            failure_type="load_failure",
+            detail="Final artifact has no index.html",
+            start=start,
+        )
+
+    siblings = {path: content for path, content in files.items() if path != "index.html"}
+    return await _smoke_html(html, case, timeout_ms, playwright_factory, start, extra_files=siblings)
+
+
+async def _smoke_html(
+    html: str,
+    case: EvalCase,
+    timeout_ms: int,
+    playwright_factory: Any | None,
+    start: float,
+    extra_files: dict[str, str] | None = None,
+) -> ExecutionSmokeResult:
     selectors = _required_browser_selectors(case.required_checks)
     try:
         if playwright_factory is None:
@@ -73,6 +116,7 @@ async def evaluate_execution_smoke(
             timeout_ms=timeout_ms,
             playwright_factory=playwright_factory,
             start=start,
+            extra_files=extra_files,
         )
     except Exception as exc:
         return _result(
@@ -112,13 +156,21 @@ async def _run_html_smoke(
     timeout_ms: int,
     playwright_factory: Any,
     start: float,
+    extra_files: dict[str, str] | None = None,
 ) -> ExecutionSmokeResult:
     console_errors: list[str] = []
     page_errors: list[str] = []
     selectors = _required_browser_selectors(checks)
 
     with tempfile.TemporaryDirectory(prefix="llm-codegen-smoke-") as tmpdir:
-        html_path = Path(tmpdir) / "index.html"
+        root = Path(tmpdir)
+        for relative_path, content in (extra_files or {}).items():
+            sibling = root / relative_path
+            if not sibling.resolve().is_relative_to(root.resolve()):
+                continue
+            sibling.parent.mkdir(parents=True, exist_ok=True)
+            sibling.write_text(content, encoding="utf-8")
+        html_path = root / "index.html"
         html_path.write_text(html, encoding="utf-8")
 
         async with playwright_factory() as p:

@@ -29,6 +29,30 @@ class RepairSummary(BaseModel):
     repaired_execution_smoke: Optional[ExecutionSmokeResult] = None
     token_summary: Optional[dict] = None
     error: Optional[str] = None
+    # None = legacy v1 prompt (included case selectors in failure detail).
+    prompt_version: Optional[int] = None
+
+
+class FinalArtifactResult(BaseModel):
+    """Scores for the files left on disk after Review/Refine.
+
+    Legacy EvalResult fields score the SSE stream text and stay unchanged.
+    """
+
+    available: bool
+    error: Optional[str] = None
+    files: list[str] = Field(default_factory=list)
+    content_sha256: Optional[str] = None
+    artifact_path: Optional[str] = None
+    generated_code_gen_type: Optional[str] = None
+
+    passed: bool = False
+    score: int = 0
+    required_passed: int = 0
+    required_total: int = 0
+    required_failed: list[ElementCheck] = Field(default_factory=list)
+    forbidden_found: list[str] = Field(default_factory=list)
+    execution_smoke: Optional[ExecutionSmokeResult] = None
 
 
 class EvalResult(BaseModel):
@@ -58,6 +82,7 @@ class EvalResult(BaseModel):
     error: Optional[str] = None
     execution_smoke: Optional[ExecutionSmokeResult] = None
     repair_summary: Optional[RepairSummary] = None
+    final_artifact: Optional[FinalArtifactResult] = None
 
     run_at: datetime = Field(default_factory=datetime.now)
     run_config: dict = Field(default_factory=dict)

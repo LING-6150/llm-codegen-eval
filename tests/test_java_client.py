@@ -107,3 +107,59 @@ async def test_clear_chat_memory_raises_when_java_returns_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="disabled"):
         await JavaServiceClient(app_id="123").clear_chat_memory()
+
+
+class FakeStreamResponse:
+    def __init__(self, lines):
+        self.lines = lines
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    def raise_for_status(self):
+        return None
+
+    async def aiter_lines(self):
+        for line in self.lines:
+            yield line
+
+
+def sse(event_type, detail=None):
+    import json
+
+    inner = {"type": event_type}
+    if detail is not None:
+        inner["detail"] = detail
+    return "data:" + json.dumps({"d": json.dumps(inner)})
+
+
+@pytest.mark.asyncio
+async def test_generate_records_generated_type_and_verify_events(monkeypatch):
+    lines = [
+        sse("requirement_done", "type=MULTI_FILE"),
+        sse("code_token", "<html>"),
+        sse("review_done", "score=88,passed=true"),
+        sse("verify_done", "passed=false,failures=1,ms=30,first=page_error: x is not defined"),
+        sse("verify_done", "passed=true,ms=25"),
+    ]
+
+    class StreamClient(FakeAsyncClient):
+        def stream(self, method, url, params=None):
+            return FakeStreamResponse(lines)
+
+    monkeypatch.setattr(java_client.httpx, "AsyncClient", StreamClient)
+    client = JavaServiceClient(base_url="http://fake")
+    client.cookies = {"SESSION": "x"}
+
+    result = await client.generate("timer", extra_params={"executionFeedback": True})
+
+    assert result["code"] == "<html>"
+    assert result["code_gen_type"] == "multi_file"
+    assert result["review_passed"] is True
+    assert result["verify_details"] == [
+        "passed=false,failures=1,ms=30,first=page_error: x is not defined",
+        "passed=true,ms=25",
+    ]

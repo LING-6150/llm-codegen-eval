@@ -41,6 +41,7 @@ def generate_markdown(
     execution_summary = _execution_summary(results)
     repair_summary = _repair_summary(results)
     taxonomy_summary = _failure_taxonomy_summary(results)
+    final_summary = _final_artifact_summary(results)
 
     lines = []
 
@@ -112,6 +113,15 @@ def generate_markdown(
         )
         lines.append(f"- **Repair generation errors**: {repair_summary['generation_errors']}")
         lines.append(f"- **Repair token cost**: {repair_summary['token_cost']:,}")
+    if final_summary["enabled"]:
+        lines.append(
+            f"- **Final-artifact structural pass rate (post-Review/Refine files)**: "
+            f"{_format_final_rate(final_summary)}"
+        )
+        lines.append(
+            f"- **Final artifact unavailable**: {final_summary['unavailable']} "
+            "(not scored; see Final Artifact section)"
+        )
     lines.append("")
 
     lines.extend(_format_failure_taxonomy_section(results, taxonomy_summary))
@@ -173,6 +183,10 @@ def generate_markdown(
             f"{avg_duration_ms/1000:.1f}s | {review_str} |"
         )
     lines.append("")
+
+    if final_summary["enabled"]:
+        lines.extend(_format_final_artifact_section(results, final_summary))
+        lines.append("")
 
     if execution_summary["enabled"]:
         lines.extend(_format_execution_smoke_section(results))
@@ -271,6 +285,8 @@ def generate_ab_report(
     execution_b = _execution_summary(results_b)
     repair_a = _repair_summary(results_a)
     repair_b = _repair_summary(results_b)
+    final_a = _final_artifact_summary(results_a)
+    final_b = _final_artifact_summary(results_b)
     improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
     lines = []
@@ -400,6 +416,15 @@ def generate_ab_report(
             f"| Repair token cost | {repair_a['token_cost']:,} | "
             f"{repair_b['token_cost']:,} | "
             f"{_format_int_delta(repair_b['token_cost'] - repair_a['token_cost'])} |"
+        )
+    if final_a["enabled"] or final_b["enabled"]:
+        lines.append(
+            f"| Final-artifact structural pass rate | {_format_final_rate(final_a)} | "
+            f"{_format_final_rate(final_b)} | {_format_final_rate_delta(final_a, final_b)} |"
+        )
+        lines.append(
+            f"| Final artifact unavailable | {final_a['unavailable']} | {final_b['unavailable']} | "
+            f"{_format_int_delta(final_b['unavailable'] - final_a['unavailable'])} |"
         )
     lines.append("")
 
@@ -1146,3 +1171,76 @@ def _execution_case_status(results: list[EvalResult]) -> str:
         suffix_parts.append(f"checker_error {checker_errors}")
     suffix = f" ({'; '.join(suffix_parts)})" if suffix_parts else ""
     return f"{passed}/{len(judged)}{suffix}"
+
+
+def _final_artifact_summary(results: list[EvalResult]) -> dict[str, Any]:
+    scored = [r for r in results if r.final_artifact is not None]
+    available = [r for r in scored if r.final_artifact.available]
+    final_passed = [r for r in available if r.final_artifact.passed]
+    return {
+        "enabled": bool(scored),
+        "scored": len(scored),
+        "available": len(available),
+        "unavailable": len(scored) - len(available),
+        "passed": len(final_passed),
+        "pass_rate": len(final_passed) / len(available) if available else 0.0,
+        # Same run, two scoring targets: SSE stream text vs files on disk.
+        "both_pass": sum(1 for r in available if r.passed and r.final_artifact.passed),
+        "stream_only_pass": sum(1 for r in available if r.passed and not r.final_artifact.passed),
+        "final_only_pass": sum(1 for r in available if not r.passed and r.final_artifact.passed),
+        "both_fail": sum(1 for r in available if not r.passed and not r.final_artifact.passed),
+    }
+
+
+def _format_final_rate(summary: dict[str, Any]) -> str:
+    if not summary["enabled"]:
+        return "-"
+    if summary["available"] == 0:
+        return "n/a"
+    return f"{summary['pass_rate']:.1%} ({summary['passed']}/{summary['available']})"
+
+
+def _format_final_rate_delta(summary_a: dict[str, Any], summary_b: dict[str, Any]) -> str:
+    if not summary_a["available"] or not summary_b["available"]:
+        return "n/a"
+    return _format_percent_delta(summary_b["pass_rate"] - summary_a["pass_rate"])
+
+
+def _format_final_artifact_section(
+    results: list[EvalResult],
+    summary: dict[str, Any],
+) -> list[str]:
+    lines = [
+        "## Final Artifact (post-Review/Refine files)",
+        "",
+        "Scores the files the Java service left on disk, downloaded after the run. "
+        "Legacy structural and execution-smoke metrics above score the SSE stream text "
+        "(CodeGen output plus RefineAgent narration) and are unchanged.",
+        "",
+        f"- **Scored runs**: {summary['scored']} (available {summary['available']}, "
+        f"unavailable {summary['unavailable']})",
+        f"- **Stream vs final agreement**: both pass {summary['both_pass']}, "
+        f"stream-only pass {summary['stream_only_pass']}, "
+        f"final-only pass {summary['final_only_pass']}, both fail {summary['both_fail']}",
+        "",
+        "| Case ID | Run | Stream Pass | Final Pass | Final Score | Final Smoke | Files | Note |",
+        "|---------|-----|-------------|------------|-------------|-------------|-------|------|",
+    ]
+    for result in results:
+        final = result.final_artifact
+        if final is None:
+            continue
+        run_index = result.run_config.get("run_index", "-")
+        if not final.available:
+            lines.append(
+                f"| {result.case_id} | {run_index} | {_yes_no(result.passed)} | - | - | - | - | "
+                f"{(final.error or 'unavailable')[:120]} |"
+            )
+            continue
+        smoke = final.execution_smoke
+        smoke_text = "-" if smoke is None else ("pass" if smoke.passed else smoke.failure_type)
+        lines.append(
+            f"| {result.case_id} | {run_index} | {_yes_no(result.passed)} | {_yes_no(final.passed)} | "
+            f"{final.score}/100 | {smoke_text} | {len(final.files)} | - |"
+        )
+    return lines

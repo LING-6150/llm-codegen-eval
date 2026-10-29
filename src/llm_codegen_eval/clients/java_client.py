@@ -71,6 +71,8 @@ class JavaServiceClient:
         review_score = None
         review_passed = None
         workflow_error = None
+        code_gen_type = None
+        verify_details = []
         start_time = time.time()
 
         params = {
@@ -120,6 +122,14 @@ class JavaServiceClient:
                             review_passed = passed_match.group(1) == "true"
                     elif event_type == "workflow_error":
                         workflow_error = payload.get("detail", "Unknown error")
+                    elif event_type == "verify_done":
+                        verify_details.append(payload.get("detail", ""))
+                    elif event_type == "requirement_done":
+                        # Orchestrator writes files under the RequirementAgent's type,
+                        # which may differ from the app's stored codeGenType.
+                        type_match = re.search(r'type=(\w+)', payload.get("detail", ""))
+                        if type_match:
+                            code_gen_type = type_match.group(1).lower()
 
         duration_ms = int((time.time() - start_time) * 1000)
 
@@ -128,5 +138,28 @@ class JavaServiceClient:
             "review_score": review_score,
             "review_passed": review_passed,
             "duration_ms": duration_ms,
-            "error": workflow_error
+            "error": workflow_error,
+            "code_gen_type": code_gen_type,
+            "verify_details": verify_details,
         }
+
+    async def get_app_code_gen_type(self) -> str | None:
+        """Return the app's stored codeGenType, which decides the download directory."""
+        if not self.cookies:
+            await self.login()
+        async with httpx.AsyncClient(cookies=self.cookies, timeout=10) as client:
+            resp = await client.get(f"{self.base_url}/api/app/get/vo", params={"id": self.app_id})
+            resp.raise_for_status()
+            payload = resp.json()
+        if payload.get("code") != 0:
+            raise RuntimeError(payload.get("message") or "Java app lookup failed")
+        return (payload.get("data") or {}).get("codeGenType")
+
+    async def download_artifact(self) -> bytes:
+        """Download the app's current output directory as a ZIP."""
+        if not self.cookies:
+            await self.login()
+        async with httpx.AsyncClient(cookies=self.cookies, timeout=60) as client:
+            resp = await client.get(f"{self.base_url}/api/app/download/{self.app_id}")
+            resp.raise_for_status()
+            return resp.content

@@ -270,6 +270,62 @@ src/llm_codegen_eval/core/        config, running, metrics, reporting, results
 tests/                            offline unit tests
 ```
 
+## Offline Eval Regression Gate
+
+Every PR runs `Offline eval regression gate` against the two committed HTML
+artifacts in `tests/fixtures/replay`, using the existing structural evaluator.
+No model, Java service, database, or browser is called; network access is disabled
+inside the scoring worker. Installing locked Python dependencies is a CI setup
+step and still needs package-registry access.
+
+The zero-drop limits in `configs/eval_regression_gate.json` cover each fixture's
+score, mean score, structural pass rate, and required/optional check pass rates.
+Fixture paths plus entry indexes distinguish the good and bad artifacts that
+share `html_005`; these are artifact-level rates, not model pass@k estimates.
+The known good/bad labels are also enforced, so passing every artifact is not an
+improvement. This small gate does not cover Vue, multi-file-specific behavior,
+browser execution, or final-artifact download/Refine behavior.
+
+Run locally after fetching main:
+
+```bash
+uv sync --frozen --dev
+uv run python scripts/eval_regression_gate.py check --base-ref origin/main
+```
+
+The command exits 1 on a regression or invalid/missing inputs, prints per-fixture
+scores and metric deltas, and writes `reports/eval-regression-gate.md`. CI uploads
+that Markdown report even on failure. The existing offline pytest job also
+tests the real command in disposable repositories: unchanged scores pass,
+lower scores fail, and lowering the PR's baseline/loosening its thresholds
+cannot mask a regression. Known-bad false positives and network attempts fail.
+
+Comparison uses the **PR base commit's baseline, thresholds, and fixtures/cases**
+with the PR checkout's evaluator code. Changes to baseline, thresholds, or inputs
+are prominently listed in logs and the report; the PR's replacement baseline
+cannot turn its current comparison green. On first introduction, when main has
+no baseline, the gate recomputes it from main's code and inputs and requires the
+proposed JSON to match exactly; the new threshold config needs explicit review.
+
+To update the baseline after an intentional scoring improvement has been
+reviewed and merged into main, use a separate, explicit update commit:
+
+```bash
+git fetch origin
+uv run python scripts/eval_regression_gate.py baseline --source-ref origin/main
+git diff -- baselines/eval_regression_gate.json
+uv run python scripts/eval_regression_gate.py check --base-ref origin/main
+```
+
+The JSON records the resolved source commit, reproduction command, input hashes,
+individual results, and aggregate metrics. It excludes timestamps and durations.
+Do not regenerate it automatically in CI or lower it to fix an unexplained
+regression. Baseline/config/input changes require human review because, once
+merged, they become the reference for future PRs. This is an auditable regression
+check, not protection against someone rewriting the checker or workflow itself.
+Requiring this job for merge is a repository ruleset/branch-protection setting;
+the workflow does not change those settings.
+
 ## Limitations And Non-Goals
 
 - Structural checks do not replace execution-based functional correctness.

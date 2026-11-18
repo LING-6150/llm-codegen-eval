@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "source_commit": "ddec17420752938f713b8d37e9f9d13e93909513",
+  "generation_command": "uv run python scripts/eval_regression_gate.py baseline --source-ref ddec17420752938f713b8d37e9f9d13e93909513",
+  "inputs": {
+    "src/llm_codegen_eval/benchmarks/cases.json": "5bdb3237d58db43b4a83b5f59e7bffb9cc3932eabe7a7146ec78c84c48730ae0",
+    "tests/fixtures/replay/html_005_bad.json": "d7ebddab968a974a71e626ec2ffd0f8dd07b8b22404b9b69807efa0d7d0e33c0",
+    "tests/fixtures/replay/html_005_good.json": "7fcc44fe731b8faa16de5b6fd7559a8e8e91a80f66076ebfccd8b71be6a66bee"
+  },
+  "results": [
+    {
+      "fixture_id": "tests/fixtures/replay/html_005_bad.json#0",
+      "case_id": "html_005",
+      "expected_passed": false,
+      "passed": false,
+      "score": 17,
+      "required_passed": 1,
+      "required_total": 4,
+      "optional_passed": 0,
+      "optional_total": 4,
+      "error": null
+    },
+    {
+      "fixture_id": "tests/fixtures/replay/html_005_good.json#0",
+      "case_id": "html_005",
+      "expected_passed": true,
+      "passed": true,
+      "score": 100,
+      "required_passed": 4,
+      "required_total": 4,
+      "optional_passed": 4,
+      "optional_total": 4,
+      "error": null
+    }
+  ],
+  "summary": {
+    "mean_score_points": 58.5,
+    "structural_pass_rate_pp": 50.0,
+    "required_check_pass_rate_pp": 62.5,
+    "optional_check_pass_rate_pp": 50.0
+  }
+}

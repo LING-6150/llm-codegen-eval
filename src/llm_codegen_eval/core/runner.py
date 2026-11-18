@@ -1,7 +1,5 @@
 """Run a single eval case against the Java service."""
 
-import httpx
-
 from .case import EvalCase, CodeType
 from .result import EvalResult, RepairSummary
 from ..clients.java_client import JavaServiceClient
@@ -33,9 +31,6 @@ async def run_case(
     try:
         gen_result = await client.generate(case.prompt, agent=agent, extra_params=java_params)
     except Exception as e:
-        config = {"agent": agent, "java_params": java_params or {}}
-        if isinstance(e, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.ProxyError)):
-            config["transport_error"] = type(e).__name__
         return EvalResult(
             case_id=case.case_id,
             passed=False,
@@ -44,8 +39,8 @@ async def run_case(
             required_total=len(case.required_checks),
             optional_passed=0,
             optional_total=len(case.optional_checks),
-            error=f"Generation failed: {str(e) or type(e).__name__}",
-            run_config=config,
+            error=f"Generation failed: {e}",
+            run_config={"agent": agent, "java_params": java_params or {}},
         )
 
     if gen_result.get("error"):

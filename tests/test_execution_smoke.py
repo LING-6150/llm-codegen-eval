@@ -52,16 +52,6 @@ class FakeBrowser:
     async def new_page(self):
         return self.page
 
-    async def new_context(self, **options):
-        assert options["offline"] and options["service_workers"] == "block"
-        return self
-
-    async def route(self, pattern, handler):
-        pass
-
-    async def route_web_socket(self, pattern, handler):
-        pass
-
     async def close(self):
         return None
 
@@ -71,7 +61,7 @@ class FakeChromium:
         self.page = page
         self.launch_error = launch_error
 
-    async def launch(self, **options):
+    async def launch(self):
         if self.launch_error:
             raise self.launch_error
         return FakeBrowser(self.page)

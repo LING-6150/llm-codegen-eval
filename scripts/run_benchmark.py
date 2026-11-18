@@ -9,7 +9,7 @@ from llm_codegen_eval.core.batch_runner import (
 )
 from llm_codegen_eval.core.cases_io import load_cases
 from llm_codegen_eval.core.account_pool import add_account_options, run_java_command
-from llm_codegen_eval.core.results_io import RunWorkload, save_results
+from llm_codegen_eval.core.results_io import save_results
 from llm_codegen_eval.core.reporter import generate_markdown, new_report_id, save_report
 from llm_codegen_eval.core.case import CodeType
 from llm_codegen_eval.core.config import java_request_params, load_run_config, validate_batch_options
@@ -178,9 +178,7 @@ async def main(
     # Save raw results
     run_id = new_report_id()
     raw_path = output_dir / f"raw_{config_name}_{run_id}.json"
-    save_results(results, raw_path, workload=RunWorkload(
-        cases=cases, runs_per_case=runs_per_case, completed=aborted_reason is None,
-    ))
+    save_results(results, raw_path)
     print(f"Raw results saved to: {raw_path}")
 
     # Generate report

@@ -47,10 +47,8 @@ resource "helm_release" "nvidia" {
 }
 locals {
   # VLLM contains a Deployment and a Service. CPU demo can skip both.
-  vllm_yaml        = file("${path.module}/../../deploy/k8s/vllm.yaml")
-  eval_yaml        = templatefile("${path.module}/../../deploy/k8s/eval.yaml.tftpl", { eval_image = var.eval_image })
-  vllm_documents   = var.gpu_enabled ? split("\n---\n", trimspace(replace(local.vllm_yaml, "\r\n", "\n"))) : []
-  common_documents = split("\n---\n", trimspace(replace(local.eval_yaml, "\r\n", "\n")))
+  vllm_documents   = var.gpu_enabled ? split("\n---\n", trimspace(file("${path.module}/../../deploy/k8s/vllm.yaml"))) : []
+  common_documents = split("\n---\n", trimspace(templatefile("${path.module}/../../deploy/k8s/eval.yaml.tftpl", { eval_image = var.eval_image })))
   manifests = { for doc in concat(local.vllm_documents, local.common_documents) :
     "${yamldecode(doc).kind}-${yamldecode(doc).metadata.name}" => merge(yamldecode(doc), {
       metadata = merge(yamldecode(doc).metadata, { namespace = "llm-eval" })

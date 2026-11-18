@@ -8,7 +8,7 @@ from llm_codegen_eval.clients.java_client import JavaServiceClient
 from llm_codegen_eval.core.batch_runner import BatchRunAborted, run_batch
 from llm_codegen_eval.core.cases_io import load_cases
 from llm_codegen_eval.core.account_pool import add_account_options, run_java_command
-from llm_codegen_eval.core.results_io import RunWorkload, save_results
+from llm_codegen_eval.core.results_io import save_results
 from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config, validate_batch_options
 from llm_codegen_eval.core.filters import select_cases
 from llm_codegen_eval.core.metrics import (
@@ -154,7 +154,7 @@ async def capture_token_snapshot(
     except Exception as exc:
         print(f"⚠️ Token metrics ({config_name} {phase}) unavailable: {exc}")
         return None
-    snapshot = extract_token_counters(text, app_id=client.app_id, per_series=True)
+    snapshot = extract_token_counters(text, app_id=client.app_id)
     print(f"Token metrics ({config_name} {phase}): captured {len(snapshot)} counters for appId={client.app_id}.")
     return snapshot
 
@@ -169,11 +169,7 @@ async def capture_token_delta(
     token_after = await capture_token_snapshot(client, config_name, "after")
     if token_after is None:
         return None
-    try:
-        summary = summarize_token_delta(diff_token_snapshots(token_before, token_after))
-    except ValueError as exc:
-        print(f"Token metrics ({config_name} delta) unavailable: {exc}")
-        return None
+    summary = summarize_token_delta(diff_token_snapshots(token_before, token_after))
     print(
         f"Token metrics ({config_name} delta): "
         f"input={summary['input']:,}, output={summary['output']:,}, total={summary['total']:,}."
@@ -232,7 +228,6 @@ async def main(
     results_b: list[EvalResult] = []
     token_summary_a = None
     token_summary_b = None
-    completed_a = False
     aborted_reason = None
     try:
         app_id = resolve_app_id(app_id)
@@ -263,7 +258,6 @@ async def main(
                 )
                 if config is config_a:
                     results_a, token_summary_a = rows, tokens
-                    completed_a = True
                 else:
                     results_b, token_summary_b = rows, tokens
     except PreflightError as e:
@@ -282,11 +276,8 @@ async def main(
     run_id = new_report_id()
     raw_a_path = output_dir / f"raw_ab_{config_a.name}_a_{run_id}.json"
     raw_b_path = output_dir / f"raw_ab_{config_b.name}_b_{run_id}.json"
-    workload = RunWorkload(cases=cases, runs_per_case=runs_per_case, completed=aborted_reason is None)
-    # An abort in B still leaves A usable as a separately completed run.
-    workload_a = workload.model_copy(update={"completed": completed_a})
-    save_results(results_a, raw_a_path, workload=workload_a)
-    save_results(results_b, raw_b_path, workload=workload)
+    save_results(results_a, raw_a_path)
+    save_results(results_b, raw_b_path)
 
     report = generate_ab_report(
         results_a,
@@ -331,11 +322,6 @@ async def main(
                 "Prometheus counter deltas by sequential config run"
                 if capture_token_metrics else "disabled"
             ),
-            "Arm token measurements": (
-                f"A: {'available' if token_summary_a is not None else 'unavailable'}, "
-                f"B: {'available' if token_summary_b is not None else 'unavailable'}"
-                if capture_token_metrics else "disabled"
-            ),
             "Config A java_service": config_a.java_service or "-",
             "Config B java_service": config_b.java_service or "-",
             "Raw A": str(raw_a_path),
@@ -344,7 +330,6 @@ async def main(
         token_summary_a=token_summary_a,
         token_summary_b=token_summary_b,
         aborted=aborted_reason is not None,
-        expected_repeats=runs_per_case,
     )
     report_path = save_report(report, output_dir=output_dir, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}", run_id=run_id)
 

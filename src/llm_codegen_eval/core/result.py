@@ -49,7 +49,7 @@ class EvalResult(BaseModel):
     review_score: Optional[int] = None
     review_passed: Optional[bool] = None
 
-    total_tokens: int | None = None
+    total_tokens: int = 0
 
     generated_code: str = ""
     generated_code_truncated: bool = False

@@ -7,7 +7,6 @@ from typing import Any, Optional
 
 from .case import EvalCase
 from .result import EvalResult
-from .results_io import complete_case_runs
 from . import stats
 from .failure_taxonomy import (
     classify_first_shot,
@@ -116,7 +115,7 @@ def generate_markdown(
             f"{repair_summary['attempted']}/{repair_summary['succeeded']}"
         )
         lines.append(f"- **Repair generation errors**: {repair_summary['generation_errors']}")
-        lines.append(f"- **Repair token cost**: {_format_int(repair_summary['token_cost'])}")
+        lines.append(f"- **Repair token cost**: {repair_summary['token_cost']:,}")
     lines.append("")
 
     lines.extend(_format_failure_taxonomy_section(results, taxonomy_summary))
@@ -245,7 +244,6 @@ def generate_ab_report(
     token_summary_a: Optional[TokenSummary] = None,
     token_summary_b: Optional[TokenSummary] = None,
     aborted: bool = False,
-    expected_repeats: int | None = None,
 ) -> str:
     """Generate a markdown comparison report for two benchmark configurations."""
 
@@ -254,20 +252,7 @@ def generate_ab_report(
     grouped_b = stats.results_by_case(results_b)
     runs_a = max((len(v) for v in grouped_a.values()), default=1)
     runs_b = max((len(v) for v in grouped_b.values()), default=1)
-    k = expected_repeats if expected_repeats is not None else max(runs_a, runs_b)
-
-    lines = [
-        f"# A/B Eval Report — {name_a} vs {name_b}", "",
-        f"**Run at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"**Cases**: {len(case_map)}",
-        f"**Compared k**: {k}",
-    ]
-    for key, value in (config_details or {}).items():
-        lines.append(f"**{key}**: {value}")
-    lines.append("")
-    if aborted or not all(complete_case_runs(rows, cases, k) for rows in (results_a, results_b)):
-        lines.append("Comparison incomplete. See the raw results for each configuration.")
-        return "\n".join(lines) + "\n"
+    k = min(runs_a, runs_b)
 
     summary_a = stats.compute_summary(results_a)
     summary_b = stats.compute_summary(results_b)
@@ -297,6 +282,20 @@ def generate_ab_report(
     repair_b = _repair_summary(results_b)
     improvements, regressions, unstable = _classify_ab_cases(cases, grouped_a, grouped_b, stability_a, stability_b)
 
+    lines = []
+    lines.append(f"# A/B Eval Report — {name_a} vs {name_b}")
+    lines.append("")
+    lines.append(f"**Run at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"**Cases**: {len(case_map)}")
+    lines.append(f"**Compared k**: {k}")
+    if config_details:
+        for key, value in config_details.items():
+            lines.append(f"**{key}**: {value}")
+    lines.append("")
+
+    if aborted:
+        lines.append("Comparison incomplete. See the raw results for each configuration.")
+        return "\n".join(lines) + "\n"
     lines.append("## Winner Summary")
     lines.append("")
     lines.append(f"- **Structural any-of-{k} pass-rate delta (B - A)**: {_format_percent_delta(pass_delta)}")
@@ -409,9 +408,11 @@ def generate_ab_report(
             f"{repair_b['generation_errors']} | "
             f"{_format_int_delta(repair_b['generation_errors'] - repair_a['generation_errors'])} |"
         )
-        cost_a, cost_b = repair_a["token_cost"], repair_b["token_cost"]
-        difference = "n/a" if cost_a is None or cost_b is None else _format_int_delta(cost_b - cost_a)
-        lines.append(f"| Repair token cost | {_format_int(cost_a)} | {_format_int(cost_b)} | {difference} |")
+        lines.append(
+            f"| Repair token cost | {repair_a['token_cost']:,} | "
+            f"{repair_b['token_cost']:,} | "
+            f"{_format_int_delta(repair_b['token_cost'] - repair_a['token_cost'])} |"
+        )
     lines.append("")
 
     lines.extend(_format_ab_failure_taxonomy_section(results_a, results_b, name_a, name_b))
@@ -730,8 +731,8 @@ def _nested_total(values: dict, key: str) -> int:
     return int(nested.get("total", 0))
 
 
-def _format_int(value: int | None) -> str:
-    return "n/a" if value is None else f"{value:,}"
+def _format_int(value: int) -> str:
+    return f"{value:,}"
 
 
 def _format_int_delta(value: int) -> str:
@@ -846,7 +847,11 @@ def _repair_summary(results: list[EvalResult]) -> dict[str, Any]:
             and result.repair_summary.reason == "repair_generation_error"
         )
     )
-    token_cost = _repair_token_cost(results)
+    token_cost = sum(
+        int(result.repair_summary.token_summary.get("total", 0))
+        for result in results
+        if result.repair_summary is not None and result.repair_summary.token_summary
+    )
     judged = len(judged_results)
     first_rate = first_shot_passed / judged if judged else 0.0
     pass_after_rate = pass_after_repair / judged if judged else 0.0
@@ -867,17 +872,6 @@ def _repair_summary(results: list[EvalResult]) -> dict[str, Any]:
 
 def _is_execution_judged(smoke: Any) -> bool:
     return stats.is_execution_judged(smoke)
-
-
-def _repair_token_cost(results: list[EvalResult]) -> int | None:
-    total = 0
-    for result in results:
-        repair = result.repair_summary
-        if repair is not None and repair.attempted:
-            if not repair.token_summary or "total" not in repair.token_summary:
-                return None
-            total += repair.token_summary["total"]
-    return total
 
 
 def _repair_judged_results(results: list[EvalResult]) -> list[EvalResult]:
@@ -1004,7 +998,11 @@ def _format_repair_section(results: list[EvalResult]) -> list[str]:
                 and result.repair_summary.succeeded
             )
         )
-        token_cost = _repair_token_cost(case_results)
+        token_cost = sum(
+            int(result.repair_summary.token_summary.get("total", 0))
+            for result in case_results
+            if result.repair_summary is not None and result.repair_summary.token_summary
+        )
         reasons = sorted({
             result.repair_summary.reason
             for result in case_results
@@ -1013,7 +1011,7 @@ def _format_repair_section(results: list[EvalResult]) -> list[str]:
         lines.append(
             f"| {case_id} | {len(judged)} | {first_passed}/{len(judged)} | "
             f"{attempted} | {succeeded} | {generation_errors} | {pass_after}/{len(judged)} | "
-            f"{_format_int(token_cost)} | {', '.join(reasons) if reasons else '-'} |"
+            f"{token_cost:,} | {', '.join(reasons) if reasons else '-'} |"
         )
     return lines
 

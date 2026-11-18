@@ -176,13 +176,6 @@ def test_analyze_token_attribution_cross_check_uses_accounted_tokens_with_retrie
     assert analysis.validity_b.cross_check_diff == 1
 
 
-def test_cross_check_is_unavailable_if_a_retry_measurement_is_missing():
-    rows = [result("case_a", 10, extra_config={"retry_token_summaries": [{"error": "missing baseline"}]})]
-    analysis = analyze_token_attribution(rows, rows, config_token_summary_a={"total": 10})
-    assert analysis.validity_a.accounted_token_sum is None
-    assert analysis.validity_a.cross_check_match is None
-
-
 def mechanism_summary(
     requests: int,
     prompt_chars: int,

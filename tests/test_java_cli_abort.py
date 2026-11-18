@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from llm_codegen_eval.core.result import EvalResult
-from llm_codegen_eval.core.results_io import RunWorkload, save_results
-from llm_codegen_eval.core.case import EvalCase
 
 
 @pytest.mark.parametrize(("command", "partial_count"), [
@@ -43,37 +41,3 @@ def test_cli_preserves_aborted_run_before_exiting(monkeypatch, tmp_path, command
     raw = list(Path("reports").glob("raw_*.json"))
     assert len(raw) == (2 if command == "run_ab" else 1)
     assert sum(len(json.loads(p.read_text(encoding="utf-8"))) for p in raw) == partial_count
-    for path in raw:
-        plan = RunWorkload.load(path)
-        assert not plan.completed and plan.runs_per_case == 1
-        assert [c.case_id for c in plan.cases] == ["html_001", "html_002"]
-
-
-@pytest.mark.parametrize("condition", [
-    "complete", "empty", "aborted", "legacy", "different_prompt", "different_repeats", "duplicate_index",
-])
-def test_offline_winner_requires_matching_completed_workloads(tmp_path, monkeypatch, condition):
-    repo = Path(__file__).resolve().parents[1]
-    command = runpy.run_path(str(repo / "scripts/compare_ab.py"))
-    case = EvalCase(case_id="html_001", prompt="heading", code_type="html")
-    plan = RunWorkload(cases=[case], completed=True, runs_per_case=2)
-    rows = [EvalResult(case_id=case.case_id, passed=True, score=100, required_passed=1, required_total=1,
-                       optional_passed=0, optional_total=0, run_config={"run_index": i, "runs_per_case": 2})
-            for i in (1, 2)]
-    a, b = tmp_path / "a.json", tmp_path / "b.json"
-    save_results(rows, a, workload=plan)
-    if condition == "aborted":
-        plan.completed = False
-    elif condition == "different_prompt":
-        plan.cases[0].prompt = "changed"
-    elif condition == "different_repeats":
-        plan.runs_per_case = 1
-    elif condition == "duplicate_index":
-        rows = [rows[0], rows[0]]
-    save_results([] if condition == "empty" else rows, b, workload=None if condition == "legacy" else plan)
-    monkeypatch.chdir(tmp_path)
-    command["main"](a, b, repo / "configs/agent_on.yaml", repo / "configs/agent_off.yaml")
-    report, = (tmp_path / "reports").glob("*.md")
-    content = report.read_text(encoding="utf-8")
-    assert ("Winner Summary" in content) == (condition == "complete")
-    assert ("Comparison incomplete" in content) == (condition != "complete")

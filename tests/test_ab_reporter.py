@@ -23,7 +23,7 @@ def make_result(case_id: str, passed: bool, score: int, run_index: int) -> EvalR
         optional_passed=0,
         optional_total=0,
         generation_duration_ms=1000,
-        run_config={"run_index": run_index},
+        run_config={"run_index": run_index, "runs_per_case": 2},
     )
 
 
@@ -388,7 +388,7 @@ def test_repair_generation_errors_are_reported_separately():
     # denominator and surfaced only via the generation-errors count.
     assert "- **Repair attempts/successes**: 0/0" in report
     assert "- **Repair generation errors**: 1" in report
-    assert "| case_a | 1 | 0/1 | 0 | 0 | 1 | 0/1 | n/a | repair_generation_error |" in report
+    assert "| case_a | 1 | 0/1 | 0 | 0 | 1 | 0/1 | 0 | repair_generation_error |" in report
 
 
 def test_generate_markdown_adds_unbiased_pass1_and_raw_spread_for_repeated_runs():

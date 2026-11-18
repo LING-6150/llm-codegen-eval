@@ -119,7 +119,7 @@ class ArmValidity:
     valid_token_runs: int
     excluded: dict[str, int]
     valid_token_sum: int
-    accounted_token_sum: int | None
+    accounted_token_sum: int
     config_token_total: int | None
     cross_check_match: bool | None
     cross_check_diff: int | None
@@ -359,7 +359,7 @@ def render_token_attribution_markdown(analysis: TokenAttributionAnalysis) -> str
         lines.append(
             f"| {validity.name} | {validity.total_runs} | {validity.valid_token_runs} | "
             f"{_format_excluded(validity.excluded)} | "
-            f"{validity.valid_token_sum:,} | {_fmt_int(validity.accounted_token_sum)} | "
+            f"{validity.valid_token_sum:,} | {validity.accounted_token_sum:,} | "
             f"{_fmt_int(validity.config_token_total)} | {_format_cross_check(validity)} |"
         )
     lines.append("")
@@ -397,18 +397,11 @@ def _valid_results_by_case(
     valid_by_case: dict[str, list[EvalResult]] = defaultdict(list)
     excluded_counts = {reason: 0 for reason in EXCLUSION_REASONS}
     valid_token_sum = 0
-    accounted_token_sum = 0 if results else None
+    accounted_token_sum = 0
 
     for index, result in enumerate(results, start=1):
-        retry_tokens = _retry_token_sum(result)
-        repair_tokens = 0
-        if result.repair_summary and result.repair_summary.attempted:
-            repair_tokens = (result.repair_summary.token_summary or {}).get("total")
-        if (result.total_tokens is None or "token_summary" not in result.run_config
-                or "token_capture_error" in result.run_config or retry_tokens is None or repair_tokens is None):
-            accounted_token_sum = None
-        elif accounted_token_sum is not None:
-            accounted_token_sum += result.total_tokens + retry_tokens + repair_tokens
+        accounted_token_sum += int(result.total_tokens or 0)
+        accounted_token_sum += _retry_token_sum(result)
         reason = _exclusion_reason(result)
         if reason is None:
             valid_by_case[result.case_id].append(result)
@@ -428,7 +421,7 @@ def _valid_results_by_case(
 
     cross_check_match = None
     cross_check_diff = None
-    if config_token_total is not None and accounted_token_sum is not None:
+    if config_token_total is not None:
         cross_check_diff = config_token_total - accounted_token_sum
         cross_check_match = cross_check_diff == 0
 
@@ -453,7 +446,7 @@ def _exclusion_reason(result: EvalResult) -> str | None:
         return "other_generation_error"
     if "token_capture_error" in result.run_config:
         return "token_capture_error"
-    if "token_summary" not in result.run_config or result.total_tokens is None:
+    if "token_summary" not in result.run_config:
         return "missing_token_summary"
     return None
 
@@ -466,15 +459,14 @@ def _exclusion_detail(result: EvalResult, reason: str) -> str | None:
     return None
 
 
-def _retry_token_sum(result: EvalResult) -> int | None:
+def _retry_token_sum(result: EvalResult) -> int:
     retry_summaries = result.run_config.get("retry_token_summaries", [])
     if not isinstance(retry_summaries, list):
-        return None
+        return 0
     total = 0
     for summary in retry_summaries:
-        if not isinstance(summary, dict) or summary.get("total") is None:
-            return None
-        total += int(summary["total"])
+        if isinstance(summary, dict):
+            total += int(summary.get("total", 0) or 0)
     return total
 
 
@@ -751,7 +743,7 @@ def _caveats(
     if len(paired_case_ids) != 0:
         caveats.append("Delta percentage summaries skip paired cases where arm A has a zero-token baseline.")
         caveats.append("Per-agent input percentages can be high-variance at small baselines; use aggregate input split as the stable view.")
-    if validity_a.cross_check_match is None or validity_b.cross_check_match is None:
+    if validity_a.config_token_total is None or validity_b.config_token_total is None:
         caveats.append("Config-level cross-check unavailable for at least one arm.")
     for validity in (validity_a, validity_b):
         if validity.cross_check_match is False:

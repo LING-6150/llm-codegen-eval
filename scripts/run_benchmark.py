@@ -123,8 +123,7 @@ async def main(
         print(f"Limited to first {len(cases)} cases")
 
     if not cases:
-        print("No cases to run.")
-        return
+        raise SystemExit("No cases to run.")
 
     client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
 
@@ -209,7 +208,7 @@ async def main(
 
     duration = (datetime.now() - start).total_seconds()
     print("-" * 70)
-    print(f"\nCompleted in {duration:.1f}s ({duration/60:.1f} min)")
+    print(f"\nRecorded {len(results)}/{total_runs} runs in {duration:.1f}s")
 
     # Save raw results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -253,6 +252,7 @@ async def main(
                 if capture_run_tokens else "disabled"
             ),
             "Batch aborted": aborted_reason or "False",
+            "Recorded / expected runs": f"{len(results)} / {total_runs}",
             "Run validity": (
                 "invalid for model-quality comparison"
                 if aborted_reason else "valid unless report warnings indicate otherwise"
@@ -263,6 +263,8 @@ async def main(
 
     report_path = save_report(report, filename_prefix=config_name)
     print(f"Report saved to: {report_path}")
+    if aborted_reason is not None:
+        raise SystemExit(1)
 
     # Print summary to console
     from llm_codegen_eval.core.stats import compute_summary

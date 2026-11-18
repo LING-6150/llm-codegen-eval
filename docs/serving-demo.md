@@ -39,6 +39,23 @@ so always show errors beside them. TTFT is time to first nonempty content chunk,
 Client semaphore wait is excluded from per-request latency. The batch wall time includes all requests.
 This is a closed-loop concurrency benchmark, not an open-loop arrival-rate capacity test.
 
+For a strict first-shot quality check, run:
+
+```bash
+uv run playwright install chromium
+uv run python -m llm_codegen_eval.serving.benchmark --environment staging --release-gate --execution-smoke
+```
+
+The gate requires every measured repeat to pass the structural checks and
+any requested browser checks. A judged quality failure exits 3. Missing
+evaluations, failed inference, failed warmup, and checker errors exit 1 and
+take precedence over quality failures. The report records expected, completed
+(result rows, including request errors), judged, and failed counts. Without
+`--release-gate`, quality failures remain report-only. A failed inference or
+warmup still exits 1. A source checkout supplies the Git revision locally.
+Container builds accept `--build-arg EVAL_GIT_COMMIT=<commit>`; reports
+record a null revision when provenance is unavailable.
+
 For another compatible engine use `--base-url` with the same model, workload, and hardware.
 Run both orders (A/B then B/A), repeat at least three times and record GPU/runtime/cache policy.
 For model quality comparisons change `--model` and disclose that different output lengths affect throughput.

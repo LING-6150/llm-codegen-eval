@@ -62,6 +62,9 @@ def generate_markdown(
     # === Summary ===
     lines.append("## Summary")
     lines.append("")
+    if not results:
+        lines.append("No evaluation results were recorded.")
+        return "\n".join(lines) + "\n"
     if runs_per_case > 1:
         lines.append(
             f"- **Structural any-of-{runs_per_case} pass rate**: {pass_at_k['pass_rate']:.1%} "
@@ -235,6 +238,7 @@ def generate_ab_report(
     config_details: Optional[dict] = None,
     token_summary_a: Optional[TokenSummary] = None,
     token_summary_b: Optional[TokenSummary] = None,
+    aborted: bool = False,
 ) -> str:
     """Generate a markdown comparison report for two benchmark configurations."""
 
@@ -284,6 +288,9 @@ def generate_ab_report(
             lines.append(f"**{key}**: {value}")
     lines.append("")
 
+    if aborted:
+        lines.append("Comparison incomplete. See the raw results for each configuration.")
+        return "\n".join(lines) + "\n"
     lines.append("## Winner Summary")
     lines.append("")
     lines.append(f"- **Structural any-of-{k} pass-rate delta (B - A)**: {_format_percent_delta(pass_delta)}")

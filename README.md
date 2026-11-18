@@ -175,6 +175,16 @@ Use `--no-clear-chat-history` or `--no-clear-redis-memory` only when intentional
 
 ## Benchmark Commands
 
+For release checks on the direct serving benchmark, add `--release-gate` and
+optionally `--execution-smoke`. Exit 0 means every selected check passed,
+3 means a judged output failed a quality check, and 1 means the evaluation
+was invalid. The run directory contains the verdict and counts in
+`benchmark.json` under `summary.release_gate`. See the
+[serving guide](docs/serving-demo.md) for the full command.
+
+The Java single-config and A/B commands exit 1 on a batch abort after writing
+the partial raw results and diagnostic report.
+
 Single-config Multi-File run:
 
 ```bash
@@ -257,6 +267,9 @@ Attribution assumptions:
 - Redis/MySQL memory isolation is enabled unless intentionally testing memory effects.
 
 ## Repository Layout
+
+Development fixes land on `dev`. Open a pull request from `dev` to `main`
+when the changes are ready for release.
 
 ```text
 configs/                         A/B run configuration files

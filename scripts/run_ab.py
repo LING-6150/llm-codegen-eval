@@ -228,8 +228,7 @@ async def main(
     if limit is not None:
         cases = cases[:limit]
     if not cases:
-        print("No cases to run.")
-        return
+        raise SystemExit("No cases to run.")
 
     print("=" * 70)
     print("LLM Codegen Eval — A/B Run")
@@ -340,6 +339,8 @@ async def main(
                 if capture_run_tokens else "disabled"
             ),
             "Batch aborted": aborted_reason or "False",
+            "Recorded / expected runs (A)": f"{len(results_a)} / {len(cases) * runs_per_case}",
+            "Recorded / expected runs (B)": f"{len(results_b)} / {len(cases) * runs_per_case}",
             "Run validity": (
                 "invalid for model-quality comparison"
                 if aborted_reason else "valid unless report warnings indicate otherwise"
@@ -355,6 +356,7 @@ async def main(
         },
         token_summary_a=token_summary_a,
         token_summary_b=token_summary_b,
+        aborted=aborted_reason is not None,
     )
     report_path = save_report(report, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}")
 
@@ -362,6 +364,8 @@ async def main(
     print(f"A raw results saved to: {raw_a_path}")
     print(f"B raw results saved to: {raw_b_path}")
     print(f"A/B report saved to: {report_path}")
+    if aborted_reason is not None:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

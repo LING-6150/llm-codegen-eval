@@ -32,7 +32,9 @@ jobs:
       - name: Run offline tests only
         # Live Java service / LLM benchmarks are intentionally manual and are
         # not run in CI because they require external services and providers.
-        run: uv run pytest
+        run: |
+          uv run playwright install --with-deps --only-shell chromium
+          uv run pytest
 
   terraform-validate:
     runs-on: ubuntu-latest
@@ -58,3 +60,11 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
+          load: true
+          tags: llm-codegen-eval:smoke
+          build-args: EVAL_GIT_COMMIT=${{ github.sha }}
+      - name: Run the packaged benchmark and query its reports
+        run: |
+          docker run --rm --network none \
+            -v "$PWD/tests/smoke_serving_image.py:/tmp/smoke_serving_image.py:ro" \
+            llm-codegen-eval:smoke python /tmp/smoke_serving_image.py --expected-revision "$GITHUB_SHA"

@@ -30,7 +30,7 @@ Build on Azure ACR so an Apple workstation still produces a Linux/amd64 image:
 
 ```bash
 # Replace YOUR_ACR with terraform output registry_name.
-az acr build --registry YOUR_ACR --image llm-eval:demo-v1 --platform linux/amd64 .
+az acr build --registry YOUR_ACR --image llm-eval:demo-v1 --platform linux/amd64 --build-arg EVAL_GIT_COMMIT="$(git rev-parse HEAD)" .
 terraform -chdir=infra/workloads init
 terraform -chdir=infra/workloads plan \
   -var='kube_context=llmeval-aks' \

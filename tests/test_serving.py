@@ -92,3 +92,38 @@ def test_cli_publishes_complete_reports_and_graphql_can_read_them(monkeypatch, t
     assert metadata["requests"][0]["case_id"] == results[0].case_id
     assert not list((tmp_path/"serving").glob(".pending-*"))
     assert (tmp_path/"serving"/ids[0]/"report.md").exists()
+
+
+@pytest.mark.parametrize(("failure_type", "exit_code", "verdict"), [
+    ("none", 0, "passed"), ("console_error", 3, "quality_failure"), ("checker_error", 1, "invalid"),
+])
+def test_browser_gate_without_git(monkeypatch, tmp_path, failure_type, exit_code, verdict):
+    from llm_codegen_eval.core.result import ExecutionSmokeResult
+    from llm_codegen_eval.serving import benchmark as module
+
+    case = EvalCase(case_id="heading", prompt="Hello", code_type="html", required_checks=[
+        ElementCheck(type="tag_exists", selector="h1", description="A heading")])
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps([case.model_dump(mode="json")]))
+    client = httpx.AsyncClient
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, text=stream()))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: client(transport=transport, **kw))
+
+    async def smoke(code, case):
+        return ExecutionSmokeResult(applicable=True, passed=failure_type == "none", failure_type=failure_type)
+
+    monkeypatch.setattr(module, "evaluate_execution_smoke", smoke)
+    monkeypatch.delenv("EVAL_GIT_COMMIT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["benchmark", "--cases", str(cases), "--environment", "offline",
+                        "--execution-smoke", "--release-gate", "--repeats", "1", "--output-dir", str(tmp_path / "out")])
+    if exit_code:
+        with pytest.raises(SystemExit) as ex:
+            module.main()
+        assert ex.value.code == exit_code
+    else:
+        module.main()
+    report, = (tmp_path / "out").glob("*/benchmark.json")
+    metadata = json.loads(report.read_text())
+    assert metadata["git_commit"] is None
+    assert metadata["summary"]["release_gate"]["verdict"] == verdict

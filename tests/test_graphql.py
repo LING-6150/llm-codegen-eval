@@ -50,10 +50,22 @@ def test_invalid_arguments(client, query_text):
     assert query(client, query_text).json().get("errors")
 
 
-def test_symlink_escape_and_corrupt_report(tmp_path):
-    (tmp_path/"raw_escape.json").symlink_to("/etc/hosts")
+def test_symlink_escape(tmp_path):
+    root = tmp_path / "reports"
+    root.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("[]")
+    try:
+        (root / "raw_escape.json").symlink_to(outside)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("This Windows account lacks the create-symbolic-links privilege")
+        raise
     with pytest.raises(ValueError, match="Invalid report path"):
-        ResultStore(tmp_path).load("raw_escape")
+        ResultStore(root).load("raw_escape")
+
+
+def test_corrupt_report(tmp_path):
     (tmp_path/"raw_bad.json").write_text('[{}]')
     with pytest.raises(ValueError, match="Invalid result"):
         ResultStore(tmp_path).load("raw_bad")

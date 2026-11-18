@@ -9,6 +9,7 @@ from strawberry.fastapi import GraphQLRouter
 from fastapi import FastAPI, Depends, Header, HTTPException
 from starlette.concurrency import run_in_threadpool
 from .store import ResultStore
+from ..core.stats import is_execution_judged
 
 
 def pagination(limit, offset):
@@ -37,6 +38,7 @@ class Run:
     ttft_p95_ms: float | None
     requests_per_second: float | None
     output_tokens_per_second: float | None
+    release_verdict: str | None
 
     @strawberry.field
     async def results(self, info: strawberry.Info, case_id: str | None = None,
@@ -49,7 +51,7 @@ class Run:
                 and (passed is None or r.passed == passed)]
         return [CaseResult(case_id=r.case_id, passed=r.passed, score=r.score,
                            duration_ms=r.generation_duration_ms, total_tokens=r.total_tokens, error=r.error,
-                           smoke_passed=r.execution_smoke.passed if r.execution_smoke and r.execution_smoke.applicable else None)
+                           smoke_passed=r.execution_smoke.passed if is_execution_judged(r.execution_smoke) else None)
                 for r in rows[offset:offset+limit]]
 
 async def get_run(store, run_id):
@@ -59,6 +61,7 @@ async def get_run(store, run_id):
     metadata, results = loaded
     summary = metadata.get("summary", {})
     return Run(run_id=run_id, model=metadata.get("model"), label=metadata.get("label"),
+               release_verdict=summary.get("release_gate", {}).get("verdict"),
                requests=len(results), errors=sum(r.error is not None for r in results),
                structural_pass_rate=sum(r.passed for r in results)/len(results) if results else None,
                latency_p95_ms=summary.get("latency_p95_ms"), ttft_p95_ms=summary.get("ttft_p95_ms"),

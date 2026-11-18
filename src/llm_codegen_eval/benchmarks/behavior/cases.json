@@ -1,0 +1,192 @@
+[
+  {
+    "case_id": "behavior_timer",
+    "prompt": "Build a self-contained countdown timer. Use data-testid seconds for a number input, start/pause/reset for buttons, remaining for integer seconds, and status for a status element. Starting with input 3 immediately shows remaining 3 and status running, then decrements once per second. Pause preserves remaining time with status paused; start resumes from that value. Completion shows 0 and done and never goes negative. Reset shows the current input duration and idle. Starting again after reset uses the current duration. No external assets or requests.",
+    "code_type": "html",
+    "difficulty": "medium",
+    "required_checks": [
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"seconds\"]",
+        "description": "Public contract element: seconds"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"start\"]",
+        "description": "Public contract element: start"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"pause\"]",
+        "description": "Public contract element: pause"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"reset\"]",
+        "description": "Public contract element: reset"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"remaining\"]",
+        "description": "Public contract element: remaining"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"status\"]",
+        "description": "Public contract element: status"
+      }
+    ],
+    "behavior_id": "timer",
+    "contract_version": "1",
+    "tags": [
+      "behavior",
+      "self-contained",
+      "contract-v1"
+    ],
+    "notes": "Versioned behavior contract; not directly comparable to legacy structural-only cases."
+  },
+  {
+    "case_id": "behavior_form",
+    "prompt": "Build a self-contained contact form with custom validation (form novalidate). Use data-testid name and email for inputs, submit for the submit button, error/status/receipt for outputs. Empty trimmed name shows error Name required, status invalid and empty receipt. A malformed email such as not-an-email shows Invalid email and invalid. Valid name and email clear the error, show submitted and include both entered values in the receipt. Keep errors empty initially. No external assets or requests.",
+    "code_type": "html",
+    "difficulty": "medium",
+    "required_checks": [
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"name\"]",
+        "description": "Public contract element: name"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"email\"]",
+        "description": "Public contract element: email"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"submit\"]",
+        "description": "Public contract element: submit"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"error\"]",
+        "description": "Public contract element: error"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"status\"]",
+        "description": "Public contract element: status"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"receipt\"]",
+        "description": "Public contract element: receipt"
+      }
+    ],
+    "behavior_id": "form",
+    "contract_version": "1",
+    "tags": [
+      "behavior",
+      "self-contained",
+      "contract-v1"
+    ],
+    "notes": "Versioned behavior contract; not directly comparable to legacy structural-only cases."
+  },
+  {
+    "case_id": "behavior_todo",
+    "prompt": "Build a self-contained initially empty todo list. Use data-testid task-input and add for input/button. Each added row uses task, with task-label text, task-toggle checkbox and task-delete button. Ignore whitespace-only entries. Adding trimmed text preserves insertion order. Toggling a checkbox changes only that task. Deleting a task removes only that task and preserves other labels and checked states. No external assets or requests.",
+    "code_type": "html",
+    "difficulty": "medium",
+    "required_checks": [
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"task-input\"]",
+        "description": "Public contract element: task-input"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"add\"]",
+        "description": "Public contract element: add"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"tasks\"]",
+        "description": "Public contract element: tasks"
+      }
+    ],
+    "behavior_id": "todo",
+    "contract_version": "1",
+    "tags": [
+      "behavior",
+      "self-contained",
+      "contract-v1"
+    ],
+    "notes": "Versioned behavior contract; not directly comparable to legacy structural-only cases."
+  },
+  {
+    "case_id": "behavior_filter",
+    "prompt": "Build a self-contained product search. Catalog: Oak Desk and Pine Chair in furniture, Blue Mug and Green Plate in kitchen. Use data-testid query for search input, category for a select with values all/furniture/kitchen, and product on each visible result row whose text is exactly its product name. Initially show all four. Apply case-insensitive substring search AND category simultaneously. Update immediately on input/change, including zero results. Clearing both filters restores all four. No external assets or requests.",
+    "code_type": "html",
+    "difficulty": "medium",
+    "required_checks": [
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"query\"]",
+        "description": "Public contract element: query"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"category\"]",
+        "description": "Public contract element: category"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"products\"]",
+        "description": "Public contract element: products"
+      }
+    ],
+    "behavior_id": "filter",
+    "contract_version": "1",
+    "tags": [
+      "behavior",
+      "self-contained",
+      "contract-v1"
+    ],
+    "notes": "Versioned behavior contract; not directly comparable to legacy structural-only cases."
+  },
+  {
+    "case_id": "behavior_notes",
+    "prompt": "Build a self-contained note editor. Use data-testid note for textarea, save and clear for buttons, status for feedback. Start empty in a fresh browser context. Save preserves exact textarea content including Unicode/newlines to localStorage and shows saved. Reload restores it. Saving again overwrites the saved note. Clear empties both textarea and persisted note, shows cleared, and reload stays empty. No external assets or requests.",
+    "code_type": "html",
+    "difficulty": "medium",
+    "required_checks": [
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"note\"]",
+        "description": "Public contract element: note"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"save\"]",
+        "description": "Public contract element: save"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"clear\"]",
+        "description": "Public contract element: clear"
+      },
+      {
+        "type": "tag_exists",
+        "selector": "[data-testid=\"status\"]",
+        "description": "Public contract element: status"
+      }
+    ],
+    "behavior_id": "notes",
+    "contract_version": "1",
+    "tags": [
+      "behavior",
+      "self-contained",
+      "contract-v1"
+    ],
+    "notes": "Versioned behavior contract; not directly comparable to legacy structural-only cases."
+  }
+]

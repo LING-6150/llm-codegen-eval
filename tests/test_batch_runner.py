@@ -521,3 +521,39 @@ async def test_run_batch_repair_requires_execution_smoke():
             repair_on_execution_fail=True,
             execution_smoke=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_run_batch_passes_final_artifact_dir_per_attempt(monkeypatch, tmp_path):
+    calls = []
+
+    async def fake_run_case(case, client, agent=True, java_params=None, **kwargs):
+        calls.append(kwargs)
+        return make_result(None, passed=True)
+
+    monkeypatch.setattr(batch_runner, "run_case", fake_run_case)
+
+    await batch_runner.run_batch(
+        [make_case()],
+        FakeClient(),
+        runs_per_case=2,
+        score_final_artifact=True,
+        final_artifact_dir=tmp_path,
+    )
+
+    assert [c["final_artifact_dir"] for c in calls] == [
+        tmp_path / "case_a_run1_attempt1",
+        tmp_path / "case_a_run2_attempt1",
+    ]
+    assert all(c["score_final_artifact"] for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_run_batch_rejects_final_artifact_scoring_with_concurrency():
+    with pytest.raises(ValueError, match="score_final_artifact requires concurrency=1"):
+        await batch_runner.run_batch(
+            [make_case()],
+            FakeClient(),
+            concurrency=2,
+            score_final_artifact=True,
+        )

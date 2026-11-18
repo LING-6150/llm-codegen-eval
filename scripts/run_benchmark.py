@@ -76,6 +76,7 @@ async def main(
     clear_redis_memory: bool = True,
     execution_smoke: bool = False,
     repair_on_execution_fail: bool = False,
+    score_final_artifact: bool = False,
 ):
     config_metadata = {}
     java_params = {}
@@ -178,6 +179,10 @@ async def main(
     print("-" * 70)
 
     start = datetime.now()
+    final_artifact_dir = (
+        Path(f"reports/artifacts/{config_name}_{start.strftime('%Y%m%d_%H%M%S')}")
+        if score_final_artifact else None
+    )
 
     aborted_reason = None
     try:
@@ -197,6 +202,8 @@ async def main(
             capture_run_tokens=capture_run_tokens,
             execution_smoke=execution_smoke,
             repair_on_execution_fail=repair_on_execution_fail,
+            score_final_artifact=score_final_artifact,
+            final_artifact_dir=final_artifact_dir,
         )
     except BatchRunAborted as e:
         results = e.results
@@ -246,6 +253,10 @@ async def main(
             "One-shot repair mode": (
                 "enabled for whitelisted execution smoke app failures"
                 if repair_on_execution_fail else "disabled"
+            ),
+            "Final artifact scoring": (
+                f"enabled; post-Review/Refine files saved under {final_artifact_dir}"
+                if score_final_artifact else "disabled"
             ),
             "Run token attribution mode": (
                 "Prometheus per-attempt counter delta; valid only for sequential runs "
@@ -324,6 +335,9 @@ if __name__ == "__main__":
                         help="Disable execution smoke validation (default)")
     parser.add_argument("--repair-on-execution-fail", dest="repair_on_execution_fail", action="store_true",
                         default=False, help="Attempt exactly one repair for whitelisted execution smoke app failures")
+    parser.add_argument("--score-final-artifact", dest="score_final_artifact", action="store_true",
+                        default=False,
+                        help="Also download and score the files left on disk after Review/Refine")
     parser.add_argument("--no-repair-on-execution-fail", dest="repair_on_execution_fail", action="store_false",
                         help="Disable one-shot execution-feedback repair (default)")
     parser.add_argument("--agent", dest="agent", action="store_true",
@@ -371,4 +385,5 @@ if __name__ == "__main__":
         clear_redis_memory=args.clear_redis_memory,
         execution_smoke=args.execution_smoke,
         repair_on_execution_fail=args.repair_on_execution_fail,
+        score_final_artifact=args.score_final_artifact,
     ))

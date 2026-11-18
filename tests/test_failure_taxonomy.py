@@ -1,4 +1,4 @@
-import importlib
+import subprocess
 import sys
 
 from llm_codegen_eval.core.failure_taxonomy import (
@@ -189,20 +189,17 @@ def test_replay_truncated_artifact_classification():
 
 
 def test_failure_taxonomy_imports_no_live_modules():
-    for module_name in [
-        "llm_codegen_eval.core.failure_taxonomy",
-        "llm_codegen_eval.core.batch_runner",
-        "llm_codegen_eval.clients.java_client",
-        "llm_codegen_eval.core.metrics",
-        "llm_codegen_eval.core.runner",
-        "llm_codegen_eval.core.preflight",
-    ]:
-        sys.modules.pop(module_name, None)
+    # A fresh interpreter checks imports without invalidating other tests' modules.
+    subprocess.run(
+        [sys.executable, "-c", """
+import sys
+import llm_codegen_eval.core.failure_taxonomy
 
-    importlib.import_module("llm_codegen_eval.core.failure_taxonomy")
-
-    assert "llm_codegen_eval.core.batch_runner" not in sys.modules
-    assert "llm_codegen_eval.clients.java_client" not in sys.modules
-    assert "llm_codegen_eval.core.metrics" not in sys.modules
-    assert "llm_codegen_eval.core.runner" not in sys.modules
-    assert "llm_codegen_eval.core.preflight" not in sys.modules
+assert "llm_codegen_eval.core.batch_runner" not in sys.modules
+assert "llm_codegen_eval.clients.java_client" not in sys.modules
+assert "llm_codegen_eval.core.metrics" not in sys.modules
+assert "llm_codegen_eval.core.runner" not in sys.modules
+assert "llm_codegen_eval.core.preflight" not in sys.modules
+"""],
+        check=True,
+    )

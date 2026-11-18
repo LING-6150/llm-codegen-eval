@@ -75,9 +75,31 @@ Deliberately **omitted**: confidence intervals, p-values, and any significance l
 
 ---
 
+## Final-artifact metrics
+
+Opt-in via `--score-final-artifact` (sequential runs only).
+
+**Why it exists.** The legacy metrics score the SSE stream text: the CodeGen tokens plus the RefineAgent's streamed narration. RefineAgent fixes code through file tools, so its edits never appear in the stream. Structural and smoke results therefore describe the first-shot output, not what Review/Refine left on disk.
+
+**What it measures.** After each run the harness downloads the app's output directory (`/api/app/download/{appId}`) and runs the same structural evaluator on those files. With `--execution-smoke`, the smoke check loads the saved `index.html` with its real sibling CSS/JS files.
+
+**Reported separately.** Final-artifact results live in `EvalResult.final_artifact` and their own report section. Legacy structural pass@k, execution smoke, repair, and token numbers are unchanged, so historical reports stay comparable. The report also shows stream-vs-final agreement (both pass / stream-only / final-only / both fail).
+
+**Marked unavailable, never guessed:**
+- the orchestrator's generated type differs from the app's stored `codeGenType` (the download endpoint would zip a different directory);
+- the output directory is unchanged since before the run (stale files);
+- the download or ZIP extraction fails.
+
+**Known limits.** Files left over from earlier runs in the same directory are not removed. The LangGraph4j path does not emit `requirement_done`, so the type check relies on the app type there.
+
+**Repair prompt v2.** `missing_element` failures no longer copy the case's hidden selectors into the repair prompt. New repair results carry `prompt_version = 2`; legacy results load as `None` (v1) and are not directly comparable.
+
+---
+
 ## One-line summary of the boundaries
 - Structural ≠ functional correctness. Execution smoke ≠ functional testing.
 - any-of-N ≠ HumanEval pass@k.
 - Unbiased pass@k is per-case averaged, never pooled, never extrapolated past N.
 - Repaired results never enter first-shot metrics; generation errors never enter the efficacy denominator or first-shot token spread.
 - Spread is descriptive, not significance.
+- Final-artifact scores are separate from stream scores; unavailable artifacts are reported, not scored.

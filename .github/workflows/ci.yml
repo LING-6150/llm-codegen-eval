@@ -10,7 +10,7 @@ permissions:
 jobs:
   offline-tests:
     name: Offline pytest only
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -33,8 +33,8 @@ jobs:
         # Live Java service / LLM benchmarks are intentionally manual and are
         # not run in CI because they require external services and providers.
         run: |
-          uv run playwright install --with-deps --only-shell chromium
-          uv run pytest
+          uv run --no-sync playwright install --with-deps --only-shell chromium
+          uv run --no-sync pytest
 
   terraform-validate:
     runs-on: ubuntu-latest

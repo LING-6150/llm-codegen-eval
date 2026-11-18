@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import mimetypes
 import re
-import tempfile
 import time
-from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote, urlsplit
 
 from ..core.case import CodeType, ElementCheck, EvalCase
 from ..core.result import ExecutionSmokeResult
+from .browser_artifact import project_files
 
 
 FATAL_CONSOLE_TYPES = {"error"}
+ARTIFACT_ORIGIN = "https://artifact.invalid"
+ARTIFACT_POLICY = (
+    "sandbox allow-scripts allow-same-origin; default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+    "object-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'self'"
+)
 
 
 async def evaluate_execution_smoke(
@@ -39,7 +47,14 @@ async def evaluate_execution_smoke(
         )
 
     html = extract_runnable_html(code)
-    if not html:
+    if case.code_type == CodeType.MULTI_FILE:
+        try:
+            entry, files = project_files(code, html)
+        except ValueError as exc:
+            return _result(True, False, "checker_error", str(exc), start)
+    elif html:
+        entry, files = "index.html", {"index.html": html}
+    else:
         return _result(
             applicable=True,
             passed=False,
@@ -68,7 +83,8 @@ async def evaluate_execution_smoke(
             playwright_factory = async_playwright
 
         return await _run_html_smoke(
-            html=html,
+            entry=entry,
+            files=files,
             checks=case.required_checks,
             timeout_ms=timeout_ms,
             playwright_factory=playwright_factory,
@@ -107,7 +123,8 @@ def extract_runnable_html(code: str) -> str | None:
 
 
 async def _run_html_smoke(
-    html: str,
+    entry: str,
+    files: dict[str, str],
     checks: list[ElementCheck],
     timeout_ms: int,
     playwright_factory: Any,
@@ -117,25 +134,40 @@ async def _run_html_smoke(
     page_errors: list[str] = []
     selectors = _required_browser_selectors(checks)
 
-    with tempfile.TemporaryDirectory(prefix="llm-codegen-smoke-") as tmpdir:
-        html_path = Path(tmpdir) / "index.html"
-        html_path.write_text(html, encoding="utf-8")
+    async def serve(route):
+        url = urlsplit(route.request.url)
+        path = unquote(url.path.removeprefix("/"))
+        if (url.scheme, url.netloc) != ("https", "artifact.invalid") or path not in files:
+            await route.abort("blockedbyclient")
+            return
+        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        await route.fulfill(body=files[path].encode("utf-8"), headers={
+            "Content-Type": f"{mime}; charset=utf-8",
+            "Content-Security-Policy": ARTIFACT_POLICY,
+            "X-DNS-Prefetch-Control": "off",
+        })
 
-        async with playwright_factory() as p:
-            browser = await p.chromium.launch()
-            try:
-                page = await browser.new_page()
-                page.on(
-                    "console",
-                    lambda msg: console_errors.append(msg.text)
-                    if msg.type in FATAL_CONSOLE_TYPES else None,
-                )
-                page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-
-                await page.goto(html_path.as_uri(), wait_until="domcontentloaded", timeout=timeout_ms)
-                missing = await _missing_required_selectors(page, checks)
-            finally:
-                await browser.close()
+    async with playwright_factory() as p:
+        # Playwright controls Chromium over a pipe. All artifact responses come
+        # from serve(); Chromium has no usable upstream proxy or DNS resolver.
+        browser = await p.chromium.launch(args=[
+            "--proxy-server=http://unreachable.invalid:1",
+            "--proxy-bypass-list=<-loopback>",
+            "--host-resolver-rules=MAP * ~NOTFOUND",
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+        ])
+        try:
+            context = await browser.new_context(offline=True, service_workers="block", accept_downloads=False)
+            await context.route("**/*", serve)
+            await context.route_web_socket("**/*", lambda socket: socket.close())
+            page = await context.new_page()
+            page.on("console", lambda msg: console_errors.append(msg.text)
+                    if msg.type in FATAL_CONSOLE_TYPES else None)
+            page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+            await page.goto(f"{ARTIFACT_ORIGIN}/{quote(entry)}", wait_until="load", timeout=timeout_ms)
+            missing = await _missing_required_selectors(page, checks)
+        finally:
+            await browser.close()
 
     if page_errors:
         return _result(

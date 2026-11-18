@@ -22,7 +22,7 @@ class CaseResult:
     passed: bool
     score: int
     duration_ms: int
-    total_tokens: int
+    total_tokens: int | None
     error: str | None
     smoke_passed: bool | None
 

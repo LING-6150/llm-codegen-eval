@@ -20,3 +20,8 @@ reports/account-runs/
 !*.tfvars.example
 outputs/
 training-data/
+
+# AI generated code output (should never be committed)
+tmp/
+tests/
+agent.md

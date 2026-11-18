@@ -120,5 +120,5 @@ async def test_repair_path_runs_through_batch_and_report_with_real_browser():
     assert "- **Repair uplift**: +100.0 pp (pass_after_one_repair - first_shot_execution_pass)" in report
     assert "- **Repair attempts/successes**: 1/1" in report
     assert "- **Repair generation errors**: 0" in report
-    assert "- **Repair token cost**: 0" in report
-    assert "| repair_fixture | 1 | 0/1 | 1 | 1 | 0 | 1/1 | 0 | repair_succeeded |" in report
+    assert "- **Repair token cost**: n/a" in report
+    assert "| repair_fixture | 1 | 0/1 | 1 | 1 | 0 | 1/1 | n/a | repair_succeeded |" in report

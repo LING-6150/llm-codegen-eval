@@ -27,6 +27,8 @@ def is_infra_error(result: EvalResult) -> bool:
     """Return true for transient provider/network errors worth rerunning."""
     if not result.error:
         return False
+    if result.run_config.get("transport_error"):
+        return True
 
     error = result.error.lower()
     transient_markers = [

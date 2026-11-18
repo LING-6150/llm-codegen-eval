@@ -240,10 +240,6 @@ def _attach_diagnostic_summary(
     if before is None:
         result.run_config["token_capture_error"] = "missing before diagnostic snapshot"
         return
-    if sum(after.tokens.values()) < sum(before.tokens.values()):
-        result.run_config["token_capture_error"] = "counter reset/regression"
-        return
-
     delta = diff_diagnostic_snapshots(before, after)
     summary = summarize_token_delta(delta.tokens)
     result.total_tokens = int(summary.get("total", 0))
@@ -293,9 +289,5 @@ def _attach_repair_diagnostic_summary(
     if before is None:
         result.run_config["repair_token_capture_error"] = "missing before diagnostic snapshot"
         return
-    if sum(after.tokens.values()) < sum(before.tokens.values()):
-        result.run_config["repair_token_capture_error"] = "counter reset/regression"
-        return
-
     delta = diff_diagnostic_snapshots(before, after)
     result.repair_summary.token_summary = summarize_token_delta(delta.tokens)

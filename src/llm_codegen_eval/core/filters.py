@@ -21,3 +21,10 @@ def filter_cases_by_id(cases: list[EvalCase], case_ids: list[str]) -> list[EvalC
         raise ValueError(f"Unknown case id(s): {', '.join(missing)}")
 
     return [case_map[case_id] for case_id in case_ids]
+
+
+def select_cases(cases, filter_type, raw_case_ids, limit):
+    if filter_type:
+        cases = [case for case in cases if case.code_type.value == filter_type]
+    cases = filter_cases_by_id(cases, parse_case_ids(raw_case_ids))
+    return cases[:limit]

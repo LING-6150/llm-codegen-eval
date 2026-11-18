@@ -157,6 +157,38 @@ The single-config and A/B benchmark commands reserve the app ID across processes
 directory. A second command targeting that ID exits before login or cleanup.
 Use separate app IDs for workers on different hosts or in isolated containers.
 
+### Run accounts in parallel on one host
+
+Both `scripts/run_benchmark.py` and `scripts/run_ab.py` accept `--accounts`.
+Use a JSONL manifest with one provisioned app per line. An account entry may
+name its own login and password environment variable. Omitted fields use
+`EVAL_JAVA_ACCOUNT` and `EVAL_JAVA_PASSWORD`.
+
+```jsonl
+{"app_id":"101","account":"eval-a","password_env":"EVAL_PASSWORD_A"}
+{"app_id":"102","account":"eval-b","password_env":"EVAL_PASSWORD_B"}
+```
+
+```sh
+uv run python scripts/run_benchmark.py --accounts accounts.jsonl --plan
+uv run python scripts/run_benchmark.py --accounts accounts.jsonl --workers 4 --batch-dir reports/account-runs/pilot
+uv run python scripts/run_benchmark.py --accounts accounts.jsonl --workers 2 --batch-dir reports/account-runs/pilot --resume
+```
+
+`--plan` reads the manifest and host capacity without signing in or clearing app state.
+The default pool is capped at eight processes, the available CPUs, and 75% of
+available memory budgeted at 256 MiB per worker (768 MiB with browser checks).
+The minimum is one worker. These are startup estimates; use `--workers` to
+tune for measured memory use and provider quotas. On Linux the planner also
+checks standard cgroup v2 CPU and memory limits.
+
+Each worker processes one app at a time. Cases, retries, and both A/B arms stay
+sequential for that app. Each app has its own reports and `worker.log` under
+the batch directory. A failed app makes the command exit 1 after other accounts
+finish. Resume skips apps whose reports were fully written and reruns unfinished
+apps from the beginning. Completion follows the Java command's exit status;
+inspect the reports for quality scores.
+
 Run the smallest local smoke test:
 
 ```bash

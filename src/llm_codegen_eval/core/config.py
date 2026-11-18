@@ -24,6 +24,20 @@ class ConfigError(ValueError):
     """Raised when an eval run config cannot be loaded."""
 
 
+def validate_batch_options(runs_per_case, infra_retries, max_consecutive_infra_failures,
+                           cooldown_seconds, execution_smoke, repair_on_execution_fail):
+    if runs_per_case < 1:
+        raise ValueError("runs_per_case must be >= 1")
+    if infra_retries < 0:
+        raise ValueError("infra_retries must be >= 0")
+    if max_consecutive_infra_failures < 0:
+        raise ValueError("max_consecutive_infra_failures must be >= 0")
+    if cooldown_seconds < 0:
+        raise ValueError("cooldown_seconds must be >= 0")
+    if repair_on_execution_fail and not execution_smoke:
+        raise ValueError("repair_on_execution_fail requires execution_smoke=True")
+
+
 def java_request_params(config: EvalRunConfig) -> dict[str, Any]:
     """Convert java_service.params config keys to Java HTTP request params."""
     params = config.java_service.get("params", {})

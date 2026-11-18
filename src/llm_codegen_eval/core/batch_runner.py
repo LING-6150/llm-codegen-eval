@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 
+from .config import validate_batch_options
 from .case import EvalCase
 from .cases_io import load_cases
 from .failure_taxonomy import is_infra_error
@@ -51,20 +52,12 @@ async def run_batch(
     and high concurrency may trigger LLM rate limits or unstable behavior.
     """
 
-    if runs_per_case < 1:
-        raise ValueError("runs_per_case must be >= 1")
-    if infra_retries < 0:
-        raise ValueError("infra_retries must be >= 0")
-    if max_consecutive_infra_failures < 0:
-        raise ValueError("max_consecutive_infra_failures must be >= 0")
-    if cooldown_seconds < 0:
-        raise ValueError("cooldown_seconds must be >= 0")
+    validate_batch_options(runs_per_case, infra_retries, max_consecutive_infra_failures,
+                           cooldown_seconds, execution_smoke, repair_on_execution_fail)
     if capture_run_tokens and concurrency != 1:
         raise ValueError("capture_run_tokens requires concurrency=1")
     if before_run and concurrency != 1:
         raise ValueError("Per-attempt setup on a shared app requires concurrency=1")
-    if repair_on_execution_fail and not execution_smoke:
-        raise ValueError("repair_on_execution_fail requires execution_smoke=True")
 
     if health_check and not await client.health():
         raise BatchRunAborted(

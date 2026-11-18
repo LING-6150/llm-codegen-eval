@@ -15,10 +15,15 @@ class JavaServiceClient:
     def __init__(
         self,
         base_url: str | None = None,
-        app_id: str | None = None
+        app_id: str | None = None,
+        *,
+        account: str | None = None,
+        password_env: str = "EVAL_JAVA_PASSWORD",
     ):
         self.base_url = (base_url or os.getenv("EVAL_JAVA_BASE_URL") or JAVA_SERVICE_URL).rstrip("/")
         self._app_id = app_id if app_id is not None else os.getenv("EVAL_APP_ID")
+        self.account = account
+        self.password_env = password_env
         self.cookies: dict = {}
 
     @property
@@ -51,8 +56,8 @@ class JavaServiceClient:
         return payload
 
     async def login(self):
-        account = os.getenv("EVAL_JAVA_ACCOUNT")
-        password = os.getenv("EVAL_JAVA_PASSWORD")
+        account = self.account or os.getenv("EVAL_JAVA_ACCOUNT")
+        password = os.getenv(self.password_env)
         if not account or not password:
             raise ValueError("Set EVAL_JAVA_ACCOUNT and EVAL_JAVA_PASSWORD to the evaluation account.")
         async with httpx.AsyncClient() as client:

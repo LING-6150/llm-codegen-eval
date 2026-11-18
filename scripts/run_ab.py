@@ -1,16 +1,16 @@
 """Run two benchmark configurations and generate an A/B diff report."""
 
 import argparse
-import asyncio
 from datetime import datetime
 from pathlib import Path
 
 from llm_codegen_eval.clients.java_client import JavaServiceClient
 from llm_codegen_eval.core.batch_runner import BatchRunAborted, run_batch
 from llm_codegen_eval.core.cases_io import load_cases
+from llm_codegen_eval.core.account_pool import add_account_options, run_java_command
 from llm_codegen_eval.core.results_io import save_results
-from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config
-from llm_codegen_eval.core.filters import filter_cases_by_id, parse_case_ids
+from llm_codegen_eval.core.config import EvalRunConfig, java_request_params, load_run_config, validate_batch_options
+from llm_codegen_eval.core.filters import select_cases
 from llm_codegen_eval.core.metrics import (
     TokenSnapshot,
     TokenSummary,
@@ -81,8 +81,10 @@ async def run_config(
     clear_redis_memory: bool,
     execution_smoke: bool,
     repair_on_execution_fail: bool,
+    java_account: str | None = None,
+    password_env: str = "EVAL_JAVA_PASSWORD",
 ) -> tuple[list[EvalResult], TokenSummary | None]:
-    client = JavaServiceClient(app_id=app_id)
+    client = JavaServiceClient(app_id=app_id, account=java_account, password_env=password_env)
     java_params = java_request_params(config)
 
     def cleanup_chat_history():
@@ -198,29 +200,17 @@ async def main(
     clear_redis_memory: bool = True,
     execution_smoke: bool = False,
     repair_on_execution_fail: bool = False,
+    java_account: str | None = None,
+    password_env: str = "EVAL_JAVA_PASSWORD",
+    output_dir: Path = Path("reports"),
 ):
-    if runs_per_case < 1:
-        raise ValueError("--runs-per-case must be >= 1")
-    if infra_retries < 0:
-        raise ValueError("--infra-retries must be >= 0")
-    if max_consecutive_infra_failures < 0:
-        raise ValueError("--max-consecutive-infra-failures must be >= 0")
-    if cooldown_seconds < 0:
-        raise ValueError("--cooldown-seconds must be >= 0")
-    if repair_on_execution_fail and not execution_smoke:
-        raise ValueError("--repair-on-execution-fail requires --execution-smoke")
+    validate_batch_options(runs_per_case, infra_retries, max_consecutive_infra_failures,
+                           cooldown_seconds, execution_smoke, repair_on_execution_fail)
 
     config_a = load_run_config(config_a_path)
     config_b = load_run_config(config_b_path)
 
-    cases = load_cases(CASES_PATH)
-    if filter_type:
-        cases = [c for c in cases if c.code_type.value == filter_type]
-    selected_case_ids = parse_case_ids(case_id)
-    if selected_case_ids:
-        cases = filter_cases_by_id(cases, selected_case_ids)
-    if limit is not None:
-        cases = cases[:limit]
+    cases = select_cases(load_cases(CASES_PATH), filter_type, case_id, limit)
     if not cases:
         raise SystemExit("No cases to run.")
 
@@ -228,8 +218,8 @@ async def main(
     print("LLM Codegen Eval — A/B Run")
     print(f"A: {config_a.name} (agent={config_a.generation.agent})")
     print(f"B: {config_b.name} (agent={config_b.generation.agent})")
-    if selected_case_ids:
-        print(f"Selected cases: {', '.join(selected_case_ids)}")
+    if case_id:
+        print(f"Selected cases: {case_id}")
     print(f"Cases: {len(cases)} × {runs_per_case} runs × 2 configs")
     print("=" * 70)
 
@@ -263,6 +253,8 @@ async def main(
                     clear_redis_memory,
                     execution_smoke,
                     repair_on_execution_fail,
+                    java_account,
+                    password_env,
                 )
                 if config is config_a:
                     results_a, token_summary_a = rows, tokens
@@ -282,8 +274,8 @@ async def main(
 
     duration = (datetime.now() - start).total_seconds()
     run_id = new_report_id()
-    raw_a_path = Path(f"reports/raw_ab_{config_a.name}_a_{run_id}.json")
-    raw_b_path = Path(f"reports/raw_ab_{config_b.name}_b_{run_id}.json")
+    raw_a_path = output_dir / f"raw_ab_{config_a.name}_a_{run_id}.json"
+    raw_b_path = output_dir / f"raw_ab_{config_b.name}_b_{run_id}.json"
     save_results(results_a, raw_a_path)
     save_results(results_b, raw_b_path)
 
@@ -339,7 +331,7 @@ async def main(
         token_summary_b=token_summary_b,
         aborted=aborted_reason is not None,
     )
-    report_path = save_report(report, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}", run_id=run_id)
+    report_path = save_report(report, output_dir=output_dir, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}", run_id=run_id)
 
     print("-" * 70)
     print(f"A raw results saved to: {raw_a_path}")
@@ -397,9 +389,10 @@ if __name__ == "__main__":
                         default=True, help="Capture Java Prometheus token counter deltas (default)")
     parser.add_argument("--no-capture-token-metrics", dest="capture_token_metrics", action="store_false",
                         help="Skip Prometheus token metric capture")
+    add_account_options(parser)
     args = parser.parse_args()
 
-    asyncio.run(main(
+    run_java_command(main, args, CASES_PATH,
         config_a_path=args.config_a,
         config_b_path=args.config_b,
         filter_type=args.type,
@@ -422,4 +415,4 @@ if __name__ == "__main__":
         clear_redis_memory=args.clear_redis_memory,
         execution_smoke=args.execution_smoke,
         repair_on_execution_fail=args.repair_on_execution_fail,
-    ))
+    )

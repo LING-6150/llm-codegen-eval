@@ -728,6 +728,7 @@ dependencies = [
     { name = "httpx" },
     { name = "jinja2" },
     { name = "playwright" },
+    { name = "psutil" },
     { name = "pydantic" },
 ]
 
@@ -763,6 +764,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "peft", marker = "extra == 'training'", specifier = ">=0.17,<0.18" },
     { name = "playwright", specifier = ">=1.60.0" },
+    { name = "psutil", specifier = ">=7.2.2" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "strawberry-graphql", extras = ["fastapi"], marker = "extra == 'api'", specifier = ">=0.316,<1" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.8,<2.9" },

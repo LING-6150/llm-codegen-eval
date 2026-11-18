@@ -11,13 +11,14 @@ from llm_codegen_eval.core.batch_runner import (
 )
 from llm_codegen_eval.core.cases_io import load_cases
 from llm_codegen_eval.core.results_io import save_results
-from llm_codegen_eval.core.reporter import generate_markdown, save_report
+from llm_codegen_eval.core.reporter import generate_markdown, new_report_id, save_report
 from llm_codegen_eval.core.case import CodeType
 from llm_codegen_eval.core.config import java_request_params, load_run_config
 from llm_codegen_eval.core.filters import filter_cases_by_id, parse_case_ids
 from llm_codegen_eval.core.preflight import (
     ChatHistoryCleanupConfig,
     PreflightError,
+    reserve_app_id,
     clear_chat_history,
 )
 from llm_codegen_eval.clients.java_client import JavaServiceClient
@@ -61,7 +62,7 @@ async def main(
     clear_history: bool = True,
     app_id: str | None = None,
     mysql_db: str = "ling_ai_code_generation",
-    mysql_user: str = "root",
+    mysql_user: str = "llm_eval",
     mysql_password: str | None = None,
     mysql_host: str = "localhost",
     mysql_port: int = 3306,
@@ -125,7 +126,7 @@ async def main(
     if not cases:
         raise SystemExit("No cases to run.")
 
-    client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
+    client = JavaServiceClient(app_id=app_id)
 
     def cleanup_chat_history():
         clear_chat_history(
@@ -156,21 +157,6 @@ async def main(
     async def before_case_run(case, run_index: int, total_runs: int):
         await cleanup_eval_memory()
 
-    # Pre-flight cleanup
-    if clear_history or clear_redis_memory:
-        print(f"\nPre-flight: eval memory will be cleared before each case run for appId={client.app_id}.")
-        try:
-            await cleanup_eval_memory()
-        except PreflightError as e:
-            print(f"❌ Pre-flight failed: {e}")
-            raise
-        if clear_history:
-            print("Pre-flight: mysql cleanup check passed.")
-        if clear_redis_memory:
-            print("Pre-flight: redis chat memory cleanup check passed.")
-    else:
-        print("\nPre-flight: eval memory cleanup skipped.")
-
     # Run batch
     total_runs = len(cases) * runs_per_case
     print(f"\nRunning {len(cases)} cases × {runs_per_case} runs ({total_runs} total runs, sequential)...")
@@ -180,23 +166,24 @@ async def main(
 
     aborted_reason = None
     try:
-        results = await run_batch(
-            cases,
-            client,
-            concurrency=1,
-            on_progress=progress_callback,
-            runs_per_case=runs_per_case,
-            before_run=before_case_run,
-            agent=agent,
-            java_params=java_params,
-            infra_retries=infra_retries,
-            max_consecutive_infra_failures=max_consecutive_infra_failures,
-            cooldown_seconds=cooldown_seconds,
-            health_check=health_check,
-            capture_run_tokens=capture_run_tokens,
-            execution_smoke=execution_smoke,
-            repair_on_execution_fail=repair_on_execution_fail,
-        )
+        with reserve_app_id(client.app_id):
+            results = await run_batch(
+                cases,
+                client,
+                concurrency=1,
+                on_progress=progress_callback,
+                runs_per_case=runs_per_case,
+                before_run=before_case_run,
+                agent=agent,
+                java_params=java_params,
+                infra_retries=infra_retries,
+                max_consecutive_infra_failures=max_consecutive_infra_failures,
+                cooldown_seconds=cooldown_seconds,
+                health_check=health_check,
+                capture_run_tokens=capture_run_tokens,
+                execution_smoke=execution_smoke,
+                repair_on_execution_fail=repair_on_execution_fail,
+            )
     except BatchRunAborted as e:
         results = e.results
         aborted_reason = str(e)
@@ -211,8 +198,8 @@ async def main(
     print(f"\nRecorded {len(results)}/{total_runs} runs in {duration:.1f}s")
 
     # Save raw results
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    raw_path = Path(f"reports/raw_{config_name}_{timestamp}.json")
+    run_id = new_report_id()
+    raw_path = Path(f"reports/raw_{config_name}_{run_id}.json")
     save_results(results, raw_path)
     print(f"Raw results saved to: {raw_path}")
 
@@ -261,7 +248,7 @@ async def main(
         }
     )
 
-    report_path = save_report(report, filename_prefix=config_name)
+    report_path = save_report(report, filename_prefix=config_name, run_id=run_id)
     print(f"Report saved to: {report_path}")
     if aborted_reason is not None:
         raise SystemExit(1)
@@ -343,7 +330,7 @@ if __name__ == "__main__":
                        help="Skip Redis chat memory cleanup")
     parser.add_argument("--mysql-db", default="ling_ai_code_generation",
                        help="MySQL database containing chat_history")
-    parser.add_argument("--mysql-user", default="root", help="MySQL user")
+    parser.add_argument("--mysql-user", default="llm_eval", help="MySQL user")
     parser.add_argument("--mysql-password",
                        help="MySQL password; falls back to EVAL_MYSQL_PASSWORD or MYSQL_PWD")
     parser.add_argument("--mysql-host", default="localhost", help="MySQL host")

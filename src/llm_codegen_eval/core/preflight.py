@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import subprocess
+import tempfile
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 
@@ -12,7 +16,7 @@ from typing import Callable
 class ChatHistoryCleanupConfig:
     app_id: str
     database: str = "ling_ai_code_generation"
-    user: str = "root"
+    user: str = "llm_eval"
     password: str | None = None
     host: str = "localhost"
     port: int = 3306
@@ -27,6 +31,31 @@ class PreflightError(RuntimeError):
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def resolve_app_id(value: str | None) -> str:
+    value = os.environ.get("EVAL_APP_ID") if value is None else value
+    if not value:
+        raise PreflightError("Set EVAL_APP_ID or --app-id to a provisioned evaluation app ID.")
+    if not value.isascii() or not value.isdecimal() or len(value) > 19 or not 0 < int(value) < 2**63:
+        raise PreflightError("invalid appId: expected a positive Java long")
+    return str(int(value))
+
+
+@contextmanager
+def reserve_app_id(app_id: str):
+    """Keep local benchmark processes from sharing one app's memory and counters."""
+    app_id = resolve_app_id(app_id)
+    directory = Path(tempfile.gettempdir()) / "llm-codegen-eval-locks"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    with closing(sqlite3.connect(directory / f"{app_id}.sqlite", timeout=0)) as connection:
+        try:
+            connection.execute("BEGIN EXCLUSIVE")
+        except sqlite3.OperationalError as exc:
+            if exc.sqlite_errorcode == sqlite3.SQLITE_BUSY:
+                raise PreflightError(f"Another local benchmark is using appId={app_id}") from exc
+            raise
+        yield
+
+
 def clear_chat_history(
     config: ChatHistoryCleanupConfig,
     runner: Runner = subprocess.run,
@@ -37,10 +66,7 @@ def clear_chat_history(
     because it is interpolated into the SQL statement.
     """
 
-    if not config.app_id.isdigit():
-        raise PreflightError(f"Refusing to clear chat_history for invalid appId: {config.app_id!r}")
-
-    sql = f"DELETE FROM chat_history WHERE appId = {config.app_id};"
+    sql = f"DELETE FROM chat_history WHERE appId = {resolve_app_id(config.app_id)};"
     cmd = [
         config.mysql_bin,
         "-h",
@@ -56,12 +82,14 @@ def clear_chat_history(
     ]
 
     password = config.password if config.password is not None else os.environ.get("EVAL_MYSQL_PASSWORD")
-    if password:
-        cmd.insert(1, f"--password={password}")
+    env = os.environ.copy()
+    if password is not None:
+        env["MYSQL_PWD"] = password
 
     try:
         completed = runner(
             cmd,
+            env=env,
             capture_output=True,
             text=True,
             timeout=config.timeout_seconds,

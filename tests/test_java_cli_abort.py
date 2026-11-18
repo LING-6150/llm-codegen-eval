@@ -18,6 +18,7 @@ def test_cli_preserves_aborted_run_before_exiting(monkeypatch, tmp_path, command
     batch_runner = importlib.import_module("llm_codegen_eval.core.batch_runner")
     repo = Path(__file__).resolve().parents[1]
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EVAL_APP_ID", "123")
     case_path = Path("src/llm_codegen_eval/benchmarks/cases.json")
     case_path.parent.mkdir(parents=True)
     shutil.copyfile(repo / case_path, case_path)

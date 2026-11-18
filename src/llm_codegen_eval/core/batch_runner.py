@@ -6,6 +6,7 @@ from pathlib import Path
 from .case import EvalCase
 from .cases_io import load_cases
 from .failure_taxonomy import is_infra_error
+from .preflight import PreflightError
 from .metrics import (
     DiagnosticSnapshot,
     diff_diagnostic_snapshots,
@@ -60,6 +61,8 @@ async def run_batch(
         raise ValueError("cooldown_seconds must be >= 0")
     if capture_run_tokens and concurrency != 1:
         raise ValueError("capture_run_tokens requires concurrency=1")
+    if before_run and concurrency != 1:
+        raise ValueError("Per-attempt setup on a shared app requires concurrency=1")
     if repair_on_execution_fail and not execution_smoke:
         raise ValueError("repair_on_execution_fail requires execution_smoke=True")
 
@@ -70,7 +73,10 @@ async def run_batch(
         )
 
     # Pre-login once
-    await client.login()
+    try:
+        await client.login()
+    except Exception as exc:
+        raise BatchRunAborted(f"Java login failed ({type(exc).__name__}): check service and EVAL_JAVA_ACCOUNT / EVAL_JAVA_PASSWORD", []) from exc
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -94,9 +100,15 @@ async def run_batch(
             retry_token_summaries = []
             for attempt_idx in range(infra_retries + 1):
                 if before_run:
-                    maybe_awaitable = before_run(case, run_idx + 1, runs_per_case)
-                    if asyncio.iscoroutine(maybe_awaitable):
-                        await maybe_awaitable
+                    try:
+                        maybe_awaitable = before_run(case, run_idx + 1, runs_per_case)
+                        if asyncio.iscoroutine(maybe_awaitable):
+                            await maybe_awaitable
+                    except PreflightError as exc:
+                        raise BatchRunAborted(
+                            f"Setup failed for {case.case_id}, run {run_idx + 1}, attempt {attempt_idx + 1}: {exc}",
+                            [result] if result is not None else [],
+                        ) from exc
 
                 diagnostic_before = None
                 if capture_run_tokens:
@@ -122,6 +134,17 @@ async def run_batch(
                         _attach_diagnostic_summary(result, diagnostic_before, diagnostic_after)
                     except Exception as exc:
                         result.run_config["token_capture_error"] = str(exc)
+
+                result.run_config.update({
+                    "run_index": run_idx + 1,
+                    "runs_per_case": runs_per_case,
+                    "agent": agent,
+                    "java_params": java_params or {},
+                    "infra_retries": infra_retries,
+                    "infra_retries_used": attempt_idx,
+                })
+                if retry_token_summaries:
+                    result.run_config["retry_token_summaries"] = retry_token_summaries.copy()
 
                 if not is_infra_error(result) or attempt_idx >= infra_retries:
                     break
@@ -154,8 +177,6 @@ async def run_batch(
                     await asyncio.sleep(cooldown_seconds)
 
             assert result is not None
-            if retry_token_summaries:
-                result.run_config["retry_token_summaries"] = retry_token_summaries
 
             if repair_on_execution_fail:
                 await _maybe_attach_repair_summary(
@@ -166,15 +187,6 @@ async def run_batch(
                     java_params=java_params,
                     capture_run_tokens=capture_run_tokens,
                 )
-
-            result.run_config.update({
-                "run_index": run_idx + 1,
-                "runs_per_case": runs_per_case,
-                "agent": agent,
-                "java_params": java_params or {},
-                "infra_retries": infra_retries,
-                "infra_retries_used": attempt_idx,
-            })
 
             if on_progress:
                 on_progress(job_idx, len(jobs), case.case_id, "done", result, run_idx=run_idx + 1)

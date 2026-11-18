@@ -1,25 +1,29 @@
 """Client for calling the Java code generation service via SSE."""
 
 import json
+import os
 import time
 import re
 import httpx
 
+from ..core.preflight import resolve_app_id
+
 JAVA_SERVICE_URL = "http://localhost:8123"
-APP_ID = "415591816310689792"
-USER_ACCOUNT = "gigiiscool"
-USER_PASSWORD = "Ajisky543210"
 
 class JavaServiceClient:
 
     def __init__(
         self,
-        base_url: str = JAVA_SERVICE_URL,
-        app_id: str = APP_ID
+        base_url: str | None = None,
+        app_id: str | None = None
     ):
-        self.base_url = base_url
-        self.app_id = app_id
+        self.base_url = (base_url or os.getenv("EVAL_JAVA_BASE_URL") or JAVA_SERVICE_URL).rstrip("/")
+        self._app_id = app_id if app_id is not None else os.getenv("EVAL_APP_ID")
         self.cookies: dict = {}
+
+    @property
+    def app_id(self) -> str:
+        return resolve_app_id(self._app_id)
 
     async def health(self) -> bool:
         """Return True when the Java service actuator health endpoint is UP."""
@@ -35,7 +39,7 @@ class JavaServiceClient:
 
     async def clear_chat_memory(self) -> dict:
         """Clear Java Redis-backed chat memory for this appId via diagnostics API."""
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, cookies=self.cookies) as client:
             resp = await client.post(
                 f"{self.base_url}/api/diagnostics/chat-memory/clear",
                 params={"appId": self.app_id},
@@ -47,15 +51,21 @@ class JavaServiceClient:
         return payload
 
     async def login(self):
+        account = os.getenv("EVAL_JAVA_ACCOUNT")
+        password = os.getenv("EVAL_JAVA_PASSWORD")
+        if not account or not password:
+            raise ValueError("Set EVAL_JAVA_ACCOUNT and EVAL_JAVA_PASSWORD to the evaluation account.")
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{self.base_url}/api/user/login",
                 json={
-                    "userAccount": USER_ACCOUNT,
-                    "userPassword": USER_PASSWORD
+                    "userAccount": account,
+                    "userPassword": password
                 }
             )
             resp.raise_for_status()
+            if resp.json().get("code") != 0 or not resp.cookies:
+                raise RuntimeError("Java service login did not establish an authenticated session")
             self.cookies = dict(resp.cookies)
 
     async def generate(
@@ -79,6 +89,8 @@ class JavaServiceClient:
             "agent": str(agent).lower()
         }
         if extra_params:
+            if "appId" in extra_params:
+                raise ValueError("Use the client app ID to select the evaluation app")
             params.update({
                 key: str(value).lower() if isinstance(value, bool) else value
                 for key, value in extra_params.items()

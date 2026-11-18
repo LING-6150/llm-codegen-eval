@@ -22,10 +22,12 @@ from llm_codegen_eval.core.metrics import (
 from llm_codegen_eval.core.preflight import (
     ChatHistoryCleanupConfig,
     PreflightError,
+    reserve_app_id,
+    resolve_app_id,
     clear_chat_history,
 )
 from llm_codegen_eval.core.result import EvalResult
-from llm_codegen_eval.core.reporter import generate_ab_report, save_report
+from llm_codegen_eval.core.reporter import generate_ab_report, new_report_id, save_report
 
 CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
 
@@ -80,7 +82,7 @@ async def run_config(
     execution_smoke: bool,
     repair_on_execution_fail: bool,
 ) -> tuple[list[EvalResult], TokenSummary | None]:
-    client = JavaServiceClient(app_id=app_id) if app_id else JavaServiceClient()
+    client = JavaServiceClient(app_id=app_id)
     java_params = java_request_params(config)
 
     def cleanup_chat_history():
@@ -111,14 +113,6 @@ async def run_config(
 
     async def before_case_run(case, run_index: int, total_runs: int):
         await cleanup_eval_memory()
-
-    if clear_history or clear_redis_memory:
-        print(f"\nPre-flight ({config.name}): checking eval memory cleanup for appId={client.app_id}...")
-        await cleanup_eval_memory()
-        if clear_history:
-            print(f"Pre-flight ({config.name}): mysql cleanup check passed.")
-        if clear_redis_memory:
-            print(f"Pre-flight ({config.name}): redis chat memory cleanup check passed.")
 
     token_before = None
     if capture_token_metrics:
@@ -191,7 +185,7 @@ async def main(
     clear_history: bool = True,
     app_id: str | None = None,
     mysql_db: str = "ling_ai_code_generation",
-    mysql_user: str = "root",
+    mysql_user: str = "llm_eval",
     mysql_password: str | None = None,
     mysql_host: str = "localhost",
     mysql_port: int = 3306,
@@ -246,54 +240,40 @@ async def main(
     token_summary_b = None
     aborted_reason = None
     try:
-        results_a, token_summary_a = await run_config(
-            config_a,
-            cases,
-            app_id,
-            runs_per_case,
-            clear_history,
-            mysql_db,
-            mysql_user,
-            mysql_password,
-            mysql_host,
-            mysql_port,
-            infra_retries,
-            max_consecutive_infra_failures,
-            cooldown_seconds,
-            health_check,
-            capture_run_tokens,
-            capture_token_metrics,
-            clear_redis_memory,
-            execution_smoke,
-            repair_on_execution_fail,
-        )
-        results_b, token_summary_b = await run_config(
-            config_b,
-            cases,
-            app_id,
-            runs_per_case,
-            clear_history,
-            mysql_db,
-            mysql_user,
-            mysql_password,
-            mysql_host,
-            mysql_port,
-            infra_retries,
-            max_consecutive_infra_failures,
-            cooldown_seconds,
-            health_check,
-            capture_run_tokens,
-            capture_token_metrics,
-            clear_redis_memory,
-            execution_smoke,
-            repair_on_execution_fail,
-        )
+        app_id = resolve_app_id(app_id)
+        with reserve_app_id(app_id):
+            for config in (config_a, config_b):
+                rows, tokens = await run_config(
+                    config,
+                    cases,
+                    app_id,
+                    runs_per_case,
+                    clear_history,
+                    mysql_db,
+                    mysql_user,
+                    mysql_password,
+                    mysql_host,
+                    mysql_port,
+                    infra_retries,
+                    max_consecutive_infra_failures,
+                    cooldown_seconds,
+                    health_check,
+                    capture_run_tokens,
+                    capture_token_metrics,
+                    clear_redis_memory,
+                    execution_smoke,
+                    repair_on_execution_fail,
+                )
+                if config is config_a:
+                    results_a, token_summary_a = rows, tokens
+                else:
+                    results_b, token_summary_b = rows, tokens
     except PreflightError as e:
         print(f"❌ Pre-flight failed: {e}")
         raise
     except BatchRunAborted as e:
         aborted_reason = str(e)
-        if not results_a:
+        if config is config_a:
             results_a = e.results
         else:
             results_b = e.results
@@ -301,9 +281,9 @@ async def main(
         print("Partial raw results and report will be saved for diagnosis.")
 
     duration = (datetime.now() - start).total_seconds()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    raw_a_path = Path(f"reports/raw_ab_{config_a.name}_{timestamp}.json")
-    raw_b_path = Path(f"reports/raw_ab_{config_b.name}_{timestamp}.json")
+    run_id = new_report_id()
+    raw_a_path = Path(f"reports/raw_ab_{config_a.name}_a_{run_id}.json")
+    raw_b_path = Path(f"reports/raw_ab_{config_b.name}_b_{run_id}.json")
     save_results(results_a, raw_a_path)
     save_results(results_b, raw_b_path)
 
@@ -314,6 +294,7 @@ async def main(
         config_a.name,
         config_b.name,
         config_details={
+            "App ID": app_id,
             "Duration": f"{duration:.1f}s",
             "Runs per case": str(runs_per_case),
             "Chat history cleared": str(clear_history),
@@ -358,7 +339,7 @@ async def main(
         token_summary_b=token_summary_b,
         aborted=aborted_reason is not None,
     )
-    report_path = save_report(report, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}")
+    report_path = save_report(report, filename_prefix=f"ab_{config_a.name}_vs_{config_b.name}", run_id=run_id)
 
     print("-" * 70)
     print(f"A raw results saved to: {raw_a_path}")
@@ -408,7 +389,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-clear-redis-memory", dest="clear_redis_memory", action="store_false",
                         help="Skip Redis chat memory cleanup")
     parser.add_argument("--mysql-db", default="ling_ai_code_generation")
-    parser.add_argument("--mysql-user", default="root")
+    parser.add_argument("--mysql-user", default="llm_eval")
     parser.add_argument("--mysql-password", help="Falls back to EVAL_MYSQL_PASSWORD or MYSQL_PWD")
     parser.add_argument("--mysql-host", default="localhost")
     parser.add_argument("--mysql-port", type=int, default=3306)

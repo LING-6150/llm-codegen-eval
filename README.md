@@ -146,6 +146,17 @@ If the browser/checker environment is missing or fails to launch, the report rec
 
 ## Quick Start
 
+For live Java commands, set `EVAL_APP_ID` to a provisioned, dedicated evaluation
+app and supply `EVAL_JAVA_ACCOUNT` and `EVAL_JAVA_PASSWORD` through your shell
+or secret manager. The batch commands also accept `--app-id`. MySQL cleanup
+defaults to the `llm_eval` account. Provision its permissions on the evaluation
+database or pass `--mysql-user` for your existing cleanup account.
+Set `EVAL_JAVA_BASE_URL` when the service runs somewhere other than localhost:8123.
+
+The single-config and A/B benchmark commands reserve the app ID across processes sharing a local temporary
+directory. A second command targeting that ID exits before login or cleanup.
+Use separate app IDs for workers on different hosts or in isolated containers.
+
 Run the smallest local smoke test:
 
 ```bash

@@ -63,8 +63,15 @@ jobs:
           load: true
           tags: llm-codegen-eval:smoke
           build-args: EVAL_GIT_COMMIT=${{ github.sha }}
-      - name: Run the packaged benchmark and query its reports
+      - uses: astral-sh/setup-uv@v5
+      - name: Prepare the locked test runner
+        run: |
+          uv export --frozen --only-group dev --no-emit-project -o "$RUNNER_TEMP/eval-test-requirements.txt"
+          uv pip install --python 3.13 --target "$RUNNER_TEMP/eval-test-deps" -r "$RUNNER_TEMP/eval-test-requirements.txt"
+      - name: Run existing benchmark and API regression tests against the packaged application
         run: |
           docker run --rm --network none \
-            -v "$PWD/tests/smoke_serving_image.py:/tmp/smoke_serving_image.py:ro" \
-            llm-codegen-eval:smoke python /tmp/smoke_serving_image.py --expected-revision "$GITHUB_SHA"
+            -v "$RUNNER_TEMP/eval-test-deps:/opt/test-deps:ro" -e PYTHONPATH=/opt/test-deps \
+            -v "$PWD/tests:/tests:ro" llm-codegen-eval:smoke python -m pytest -q -p no:cacheprovider \
+            /tests/test_serving.py::test_cli_publishes_complete_reports_and_graphql_can_read_them \
+            /tests/test_graphql.py::test_serving_and_legacy_queries

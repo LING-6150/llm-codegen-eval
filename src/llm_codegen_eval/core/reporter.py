@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 from typing import Any, Optional
 
 from .case import EvalCase
@@ -215,15 +216,19 @@ def generate_markdown(
 
     return "\n".join(lines)
 
+def new_report_id() -> str:
+    return f"{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex}"
+
+
 def save_report(
     content: str,
     output_dir: Path = Path("reports"),
-    filename_prefix: str = "baseline"
+    filename_prefix: str = "baseline",
+    run_id: str | None = None,
 ) -> Path:
     """Save report to a timestamped file."""
     output_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{filename_prefix}_{timestamp}.md"
+    filename = f"{filename_prefix}_{run_id or new_report_id()}.md"
     path = output_dir / filename
     path.write_text(content, encoding="utf-8")
     return path

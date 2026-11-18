@@ -48,7 +48,7 @@ Real-browser tests run every reference and both mutations **three times**: 45 ca
 All mutations must still pass structural and initial smoke checks, then fail at their designated
 behavior checkpoint. Additional tests check runtime errors, broken checkers and network policy.
 Browser tests do not silently skip if Chromium is missing; CI installs Chromium in a dedicated job.
-Integration with the public CLI and independent summary reports is the next increment.
+Use `llm-codegen-eval demo` or `run --suite html-behavior-v1` for [CLI integration and independent layer reports](three-layer-reports.md).
 
 References: [Playwright clock](https://playwright.dev/python/docs/clock),
 [Playwright assertions](https://playwright.dev/python/docs/test-assertions).

@@ -6,7 +6,7 @@ from pathlib import Path
 from llm_codegen_eval.core.cases_io import load_cases
 from llm_codegen_eval.core.config import load_run_config
 from llm_codegen_eval.core.reporter import generate_ab_report, save_report
-from llm_codegen_eval.core.results_io import load_results
+from llm_codegen_eval.core.results_io import RunWorkload, load_results
 
 CASES_PATH = Path("src/llm_codegen_eval/benchmarks/cases.json")
 
@@ -21,17 +21,26 @@ def main(
 ):
     config_a = load_run_config(config_a_path)
     config_b = load_run_config(config_b_path)
-    cases = load_cases(CASES_PATH)
+    results_a = load_results(raw_a)
+    results_b = load_results(raw_b)
+    plan_a, plan_b = RunWorkload.load(raw_a), RunWorkload.load(raw_b)
+    reason = None
+    if plan_a is None or plan_b is None:
+        reason = "Saved workload metadata is missing. Completion cannot be verified."
+    elif not plan_a.completed or not plan_b.completed:
+        reason = "A benchmark arm did not complete."
+    elif plan_a.cases != plan_b.cases or plan_a.runs_per_case != plan_b.runs_per_case:
+        reason = "The recorded cases or repeat counts differ."
+    elif not plan_a.matches_rows(results_a) or not plan_b.matches_rows(results_b):
+        reason = "Recorded results do not cover the expected case runs."
+
+    cases = plan_a.cases if plan_a else load_cases(CASES_PATH)
     if filter_type:
         cases = [c for c in cases if c.code_type.value == filter_type]
 
-    results_a = load_results(raw_a)
-    results_b = load_results(raw_b)
     selected_case_ids = {c.case_id for c in cases}
     results_a = [r for r in results_a if r.case_id in selected_case_ids]
     results_b = [r for r in results_b if r.case_id in selected_case_ids]
-    result_case_ids = {r.case_id for r in results_a} | {r.case_id for r in results_b}
-    cases = [c for c in cases if c.case_id in result_case_ids]
 
     report = generate_ab_report(
         results_a,
@@ -40,11 +49,14 @@ def main(
         config_a.name,
         config_b.name,
         config_details={
+            "Workload verification": reason or "Both arms completed the same workload.",
             "Raw A": str(raw_a),
             "Raw B": str(raw_b),
             "Config A java_service": config_a.java_service or "-",
             "Config B java_service": config_b.java_service or "-",
         },
+        aborted=reason is not None,
+        expected_repeats=plan_a.runs_per_case if plan_a else None,
     )
     prefix = output_prefix or f"ab_compare_{config_a.name}_vs_{config_b.name}"
     report_path = save_report(report, filename_prefix=prefix)

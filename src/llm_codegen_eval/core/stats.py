@@ -158,7 +158,8 @@ def _mean_stdev(values: list[float | int]) -> dict[str, float]:
 
 
 def _has_first_shot_token_measurement(result: EvalResult) -> bool:
-    return result.total_tokens > 0 or "token_summary" in result.run_config
+    return (result.total_tokens is not None and "token_capture_error" not in result.run_config
+            and (result.total_tokens > 0 or "token_summary" in result.run_config))
 
 
 def is_execution_judged(smoke: Any) -> bool:

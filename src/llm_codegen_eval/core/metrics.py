@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
+from math import isfinite
 import re
 
 import httpx
@@ -17,6 +18,7 @@ class TokenMetricKey:
     agent_name: str
     model_name: str
     token_type: str
+    labels: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -24,12 +26,14 @@ class RequestMetricKey:
     agent_name: str
     model_name: str
     status: str
+    labels: tuple = ()
 
 
 @dataclass(frozen=True)
 class PromptCharsMetricKey:
     agent_name: str
     model_name: str
+    labels: tuple = ()
 
 
 TokenSnapshot = dict[TokenMetricKey, float]
@@ -53,7 +57,7 @@ async def fetch_prometheus_metrics(base_url: str) -> str:
         return response.text
 
 
-def extract_token_counters(prometheus_text: str, app_id: str | None = None) -> TokenSnapshot:
+def extract_token_counters(prometheus_text: str, app_id: str | None = None, *, per_series=False) -> TokenSnapshot:
     """Extract token counters, optionally scoped to one Java appId."""
     counters: TokenSnapshot = {}
     for metric_name, labels, value in parse_prometheus_metrics(prometheus_text):
@@ -68,12 +72,13 @@ def extract_token_counters(prometheus_text: str, app_id: str | None = None) -> T
             agent_name=labels.get("agent_name", "unknown"),
             model_name=labels.get("model_name", "unknown"),
             token_type=token_type,
+            labels=tuple(sorted(labels.items())) if per_series else (),
         )
         counters[key] = counters.get(key, 0.0) + value
     return counters
 
 
-def extract_request_counters(prometheus_text: str, app_id: str | None = None) -> RequestSnapshot:
+def extract_request_counters(prometheus_text: str, app_id: str | None = None, *, per_series=False) -> RequestSnapshot:
     """Extract AI request counters, optionally scoped to one Java appId."""
     counters: RequestSnapshot = {}
     for metric_name, labels, value in parse_prometheus_metrics(prometheus_text):
@@ -88,12 +93,13 @@ def extract_request_counters(prometheus_text: str, app_id: str | None = None) ->
             agent_name=labels.get("agent_name", "unknown"),
             model_name=labels.get("model_name", "unknown"),
             status=status,
+            labels=tuple(sorted(labels.items())) if per_series else (),
         )
         counters[key] = counters.get(key, 0.0) + value
     return counters
 
 
-def extract_prompt_chars_counters(prometheus_text: str, app_id: str | None = None) -> PromptCharsSnapshot:
+def extract_prompt_chars_counters(prometheus_text: str, app_id: str | None = None, *, per_series=False) -> PromptCharsSnapshot:
     """Extract outgoing prompt character counters, optionally scoped to one Java appId."""
     counters: PromptCharsSnapshot = {}
     for metric_name, labels, value in parse_prometheus_metrics(prometheus_text):
@@ -102,6 +108,7 @@ def extract_prompt_chars_counters(prometheus_text: str, app_id: str | None = Non
         if app_id is not None and labels.get("app_id") != app_id:
             continue
         key = PromptCharsMetricKey(
+            labels=tuple(sorted(labels.items())) if per_series else (),
             agent_name=labels.get("agent_name", "unknown"),
             model_name=labels.get("model_name", "unknown"),
         )
@@ -112,20 +119,17 @@ def extract_prompt_chars_counters(prometheus_text: str, app_id: str | None = Non
 def extract_diagnostic_snapshot(prometheus_text: str, app_id: str | None = None) -> DiagnosticSnapshot:
     """Extract all eval diagnostic counters from one Prometheus scrape."""
     return DiagnosticSnapshot(
-        tokens=extract_token_counters(prometheus_text, app_id=app_id),
-        requests=extract_request_counters(prometheus_text, app_id=app_id),
-        prompt_chars=extract_prompt_chars_counters(prometheus_text, app_id=app_id),
+        tokens=extract_token_counters(prometheus_text, app_id=app_id, per_series=True),
+        requests=extract_request_counters(prometheus_text, app_id=app_id, per_series=True),
+        prompt_chars=extract_prompt_chars_counters(prometheus_text, app_id=app_id, per_series=True),
     )
 
 
 def diff_token_snapshots(before: TokenSnapshot, after: TokenSnapshot) -> TokenSnapshot:
     """Return positive counter deltas between two snapshots."""
-    diff: TokenSnapshot = {}
-    for key, after_value in after.items():
-        delta = after_value - before.get(key, 0.0)
-        if delta > 0:
-            diff[key] = delta
-    return diff
+    if not before or not after:
+        raise ValueError("missing token counters for this app")
+    return _diff_positive(before, after)
 
 
 def diff_request_snapshots(before: RequestSnapshot, after: RequestSnapshot) -> RequestSnapshot:
@@ -247,9 +251,15 @@ def _round_nested(values: dict[str, dict[str, float]]) -> dict[str, dict[str, in
 
 
 def _diff_positive(before: dict, after: dict) -> dict:
+    if before.keys() - after.keys():
+        raise ValueError("counter series disappeared")
+    if any(not isfinite(v) or v < 0 for values in (before, after) for v in values.values()):
+        raise ValueError("invalid counter value")
     diff = {}
     for key, after_value in after.items():
         delta = after_value - before.get(key, 0.0)
+        if delta < 0:
+            raise ValueError("counter reset/regression")
         if delta > 0:
             diff[key] = delta
     return diff

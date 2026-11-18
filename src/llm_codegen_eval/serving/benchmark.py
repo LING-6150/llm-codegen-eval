@@ -91,7 +91,7 @@ async def benchmark(client, cases, concurrency=1, repeats=1, warmup=1, execution
                 result.execution_smoke = await evaluate_execution_smoke(record["code"], case)
         metrics = {k:v for k,v in record.items() if k != "code"}
         result.generation_duration_ms = round(record["duration_ms"])
-        result.total_tokens = (record.get("usage") or {}).get("total_tokens", 0)
+        result.total_tokens = (record.get("usage") or {}).get("total_tokens")
         result.run_config = {"backend": "openai-compatible", "model": client.model,
                              "repeat": repeat, "inference": metrics}
         results.append(result)

@@ -189,10 +189,10 @@ finish. Resume skips apps whose reports were fully written and reruns unfinished
 apps from the beginning. Completion follows the Java command's exit status;
 inspect the reports for quality scores.
 
-Run the smallest local smoke test:
+Run one HTML case against the Java service:
 
 ```bash
-uv run python scripts/test_one_case.py
+uv run python scripts/run_benchmark.py --case-id html_005 --runs-per-case 1 --infra-retries 0 --no-clear-chat-history --no-clear-redis-memory
 ```
 
 Run a limited benchmark:
@@ -279,7 +279,18 @@ EVAL_MYSQL_PASSWORD='your-password' uv run python scripts/run_ab.py \
 
 Run separate shards for the remaining case pairs and merge/analyze the saved raw files.
 
+Keep each Java raw report with its sibling `workload_<raw filename>` when copying or archiving runs.
+`scripts/compare_ab.py` verifies the saved case definitions, repeat indices, and completion status
+before reporting a winner. Older raw files remain readable for replay and token analysis.
+
+Browser smoke runs use an offline Chromium context. For multi-file output, put each relative
+filename immediately above its fenced block. The checker serves those files from memory.
+Ambiguous file layouts produce an unjudged checker result.
+
 ## Token Attribution
+
+Token capture requires a nonempty app-scoped baseline and a final scrape. A missing series or
+counter regression makes the measurement unavailable. Equal observed counters yield a measured zero.
 
 Per-run attribution is opt-in via `--capture-run-tokens`.
 

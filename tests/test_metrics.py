@@ -1,3 +1,8 @@
+import pytest
+import runpy
+from pathlib import Path
+from unittest.mock import AsyncMock
+
 from llm_codegen_eval.core.metrics import (
     DiagnosticSnapshot,
     PromptCharsMetricKey,
@@ -92,3 +97,33 @@ def test_diagnostic_snapshot_diff_and_mechanism_summary():
     assert codegen["input_tokens"] == 75
     assert codegen["mean_prompt_chars_per_request"] == 500
     assert codegen["input_tokens_per_request"] == 25
+
+
+def test_detects_reset_of_a_single_prometheus_series_before_aggregation():
+    def scrape(first, second):
+        lines = [
+            f'ai_model_tokens_total{{app_id="1",agent_name="code",token_type="input",user_id="{user}"}} {value}'
+            for user, value in (("a", first), ("b", second))
+        ]
+        return extract_diagnostic_snapshot("\n".join(lines), "1")
+    with pytest.raises(ValueError, match="reset"):
+        diff_diagnostic_snapshots(scrape(100, 5), scrape(1, 108))
+
+
+def test_missing_and_zero_token_measurements_are_distinct():
+    key = TokenMetricKey("code", "model", "input")
+    for before, after in (({}, {}), ({}, {key: 10}), ({key: 10}, {})):
+        with pytest.raises(ValueError, match="missing"):
+            diff_token_snapshots(before, after)
+    assert summarize_token_delta(diff_token_snapshots({key: 10}, {key: 10}))["total"] == 0
+    with pytest.raises(ValueError, match="disappeared"):
+        diff_token_snapshots({key: 10, TokenMetricKey("review", "m", "input"): 0}, {key: 99})
+
+
+@pytest.mark.asyncio
+async def test_arm_capture_rejects_a_masked_reset(monkeypatch):
+    command = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts/run_ab.py"))
+    capture = command["capture_token_delta"]
+    a, b = TokenMetricKey("a", "m", "input"), TokenMetricKey("b", "m", "input")
+    monkeypatch.setitem(capture.__globals__, "capture_token_snapshot", AsyncMock(return_value={a: 1, b: 108}))
+    assert await capture(None, "arm", {a: 100, b: 5}) is None
